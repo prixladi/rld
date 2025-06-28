@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "unistd.h": "c",
+        "sdl.h": "c",
+        "sdl_opengl.h": "c",
+        "main.h": "c"
+    }
+}
