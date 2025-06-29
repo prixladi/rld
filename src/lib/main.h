@@ -1,10 +1,13 @@
-#include <stdio.h>
+#ifndef MAIN__H
+#define MAIN__H
 
-#include <sys/types.h>
-#include <sys/inotify.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #define __MAIN \
     int main(int argc, char **argv) { entrypoint(argc, argv); }
+int entrypoint(int argc, char **argv);
 
 struct Context
 {
@@ -23,21 +26,14 @@ struct Config
     void *user_data;
 };
 
-struct ChangedField
+struct ChangedFile
 {
     char *path;
+    uint32_t changes_mask;
 };
 
 struct Config init_config(struct Context *context);
+bool should_register_file_change(struct ChangedFile changed_file);
 void destroy_config(struct Config *context);
 
-static int entrypoint(int argc, char **argv)
-{
-    struct Context context = {};
-
-    struct Config config = init_config(&context);
-
-    printf("%d args %s\n", argc, config.build_command[0]);
-
-    destroy_config(&config);
-}
+#endif

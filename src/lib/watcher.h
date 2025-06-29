@@ -1,0 +1,34 @@
+#ifndef WATCHER__H
+#define WATCHER__H
+
+struct watcher;
+
+struct watcher_file_event
+{
+    char *file_name;
+    char *dir;
+    time_t timestamp;
+
+    bool created;
+    bool modified;
+    bool moved_from;
+    bool moved_to;
+};
+
+struct watcher_event_batch
+{
+    bool dir_structure_changed;
+    struct watcher_file_event *file_events;
+};
+
+struct watcher *watcher_create(char **root_dirs, bool (*should_include_dir)(char *));
+int watcher_free(struct watcher *watcher);
+
+int watcher_start_watching(struct watcher *watcher);
+int watcher_wait_and_stop_watching(struct watcher *watcher);
+
+int watcher_read_event_batch(struct watcher *watcher, struct watcher_event_batch *batch);
+int watcher_clear_event_batch(struct watcher_event_batch batch);
+
+
+#endif

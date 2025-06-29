@@ -1,5 +1,6 @@
-#include "main.h"
-#include "stdlib.h"
+#include <stdlib.h>
+
+#include "lib/main.h"
 
 __MAIN
 

@@ -3,6 +3,16 @@
         "unistd.h": "c",
         "sdl.h": "c",
         "sdl_opengl.h": "c",
-        "main.h": "c"
+        "main.h": "c",
+        "inotify.h": "c",
+        "stdio.h": "c",
+        "types.h": "c",
+        "stdlib.h": "c",
+        "errno.h": "c",
+        "vector.h": "c",
+        "string.h": "c",
+        "fs.h": "c",
+        "memory.h": "c",
+        "watcher.h": "c"
     }
 }
