@@ -4,10 +4,10 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-bool dir_exists(char *path);
+bool dir_exists(const char *path);
 char *get_file_content(FILE *fp);
-bool is_path_absolute(char *path);
-char *paths_join(char *p1, char *p2);
-char **get_directories_recursive(char *root_dir);
+bool is_path_absolute(const char *path);
+char *paths_join(const char *p1, const char *p2);
+char **get_directories_recursive(const char *root_dir);
 
 #endif
