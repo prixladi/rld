@@ -29,12 +29,14 @@ _vec_dup(void *arr)
     return tmp + VECTOR_FIELDS;
 }
 
-void _vec_free(void *arr)
+void
+_vec_free(void *arr)
 {
     free((size_t *)(arr)-VECTOR_FIELDS);
 }
 
-void _vec_scoped(void *arr)
+void
+_vec_scoped(void *arr)
 {
     _vec_free(*((void **)arr));
 }
@@ -45,7 +47,8 @@ _vector_field_get(const void *arr, size_t field)
     return ((size_t *)(arr)-VECTOR_FIELDS)[field];
 }
 
-void _vector_field_set(void *arr, size_t field, size_t value)
+void
+_vector_field_set(void *arr, size_t field, size_t value)
 {
     ((size_t *)(arr)-VECTOR_FIELDS)[field] = value;
 }
@@ -106,7 +109,8 @@ _vec_unshift(void *arr, void *xptr)
     return arr;
 }
 
-int _vec_pop(void *arr, void *dest)
+int
+_vec_pop(void *arr, void *dest)
 {
     size_t len = vec_length(arr);
     if (len == 0)
@@ -119,7 +123,8 @@ int _vec_pop(void *arr, void *dest)
     return 0;
 }
 
-int _vec_remove(void *arr, size_t pos, void *dest)
+int
+_vec_remove(void *arr, size_t pos, void *dest)
 {
     size_t len = vec_length(arr);
     if (pos >= len)

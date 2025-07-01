@@ -10,7 +10,8 @@
 
 #define DT_DIR 4
 
-bool dir_exists(const char *path)
+bool
+dir_exists(const char *path)
 {
     DIR *dir = opendir(path);
     if (dir == NULL)
@@ -35,13 +36,14 @@ get_file_content(FILE *fp)
     return content;
 }
 
-bool is_path_absolute(const char *path)
+bool
+is_path_absolute(const char *path)
 {
     return strlen(path) > 0 && path[0] == '/';
 }
 
 char *
-paths_join(const char *p1,const  char *p2)
+paths_join(const char *p1, const char *p2)
 {
     if (p1 == NULL || strlen(p1) == 0)
         return p2 == NULL ? NULL : str_dup(p2);
@@ -69,7 +71,8 @@ get_directories_recursive(const char *root_dir)
         vec_pop(stack, &current_dir);
 
         DIR *dir = opendir(current_dir);
-        if (dir == NULL) {
+        if (dir == NULL)
+        {
             free(current_dir);
             continue;
         }

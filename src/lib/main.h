@@ -6,7 +6,10 @@
 #include <stdint.h>
 
 #define __MAIN \
-    int main(int argc, char **argv) { entrypoint(argc, argv); }
+    int main(int argc, char **argv) \
+    { \
+        entrypoint(argc, argv); \
+    }
 int entrypoint(int argc, char **argv);
 
 struct Context

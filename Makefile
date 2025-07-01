@@ -1,7 +1,7 @@
 CC=gcc
 FLAGS = -W -std=c99
 SOURCES = src/*.c src/lib/*.c src/lib/utils/*.c 
-HEADERS = src/*.h src/lib/*.h src/lib/utils/*.h 
+HEADERS = src/lib/*.h src/lib/utils/*.h 
 
 .PHONY: build install run
 
@@ -28,3 +28,6 @@ run_debug_thread: build_debug_thread
 
 run_debug_address: build_debug_address
 	./build/reload-debug -w ./run
+	
+format: 
+	clang-format -i $(SOURCES) $(HEADERS)

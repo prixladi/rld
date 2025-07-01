@@ -4,9 +4,10 @@
 
 __MAIN
 
-struct Config init_config(struct Context *context)
+struct Config
+init_config(struct Context *context)
 {
-    struct Config config = {0};
+    struct Config config = { 0 };
 
     char **watch_paths = malloc(sizeof(char *) * 3);
     watch_paths[0] = "./tst/src1";
@@ -30,7 +31,8 @@ struct Config init_config(struct Context *context)
     return config;
 }
 
-void destroy_config(struct Config *config)
+void
+destroy_config(struct Config *config)
 {
     free(config->build_command);
     free(config->run_command);

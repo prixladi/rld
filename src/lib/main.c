@@ -12,12 +12,14 @@
 #include "main.h"
 #include "watcher.h"
 
-bool should_include_dir(char *dir)
+bool
+should_include_dir(char *dir)
 {
     return str_starts_with(dir, "./run");
 }
 
-void *read_loop_thr(void *data)
+void *
+read_loop_thr(void *data)
 {
     struct watcher *watcher = data;
 
@@ -47,7 +49,8 @@ graceful_stop_handler(int signal)
         watcher_signal_stop(watcher_g);
 }
 
-int entrypoint(int argc, char **argv)
+int
+entrypoint(int argc, char **argv)
 {
     log_init(DEBUG);
 
