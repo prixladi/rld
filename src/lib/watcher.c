@@ -11,6 +11,7 @@
 #include "utils/memory.h"
 #include "utils/string.h"
 #include "utils/log.h"
+#include "utils/hashmap.h"
 
 #include "watcher.h"
 
@@ -32,15 +33,22 @@ struct watcher
     pthread_t watching_thr;
     bool stoped;
 
-    struct watched_dir *watched_dirs;
+    struct hashmap *watched_dirs;
     struct watcher_event_batch event_batch;
     pthread_mutex_t *lock;
     pthread_cond_t *cond;
 };
 
 static void init_and_add_watched_dirs(struct watcher *watcher, int fd);
-static void rm_and_free_watched_dirs(struct watcher *watcher);
 static void *watcher_start_watching_thr(void *data);
+
+static void free_watched_dir(void *item);
+static void free_pointer_to_string(void *item);
+
+static int str_compare(const void *a, const void *b, void *udata);
+static uint64_t str_hash(const void *item, uint64_t seed0, uint64_t seed1);
+static int watched_dir_compare(const void *a, const void *b, void *udata);
+static uint64_t watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1);
 
 struct watcher *
 watcher_create(char **root_dirs, bool (*should_include_dir)(char *))
@@ -55,7 +63,9 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *))
     watcher->root_dirs = r_dirs;
     watcher->should_include_dir = should_include_dir;
 
-    watcher->watched_dirs = vec_create(struct watched_dir);
+    watcher->watched_dirs = hashmap_new(sizeof(struct watched_dir), 0, 0, 0,
+                                        str_hash, str_compare, &free_watched_dir, NULL);
+
     watcher->event_batch.dir_structure_changed = false;
     watcher->event_batch.file_events = vec_create(struct watcher_file_event);
 
@@ -87,10 +97,8 @@ int watcher_free(struct watcher *watcher)
     vec_for_each(watcher->root_dirs, free);
     vec_free(watcher->root_dirs);
 
-    vec_for_each2(struct watched_dir, wd, watcher->watched_dirs)
-        free(wd->dir);
-    vec_free(watcher->watched_dirs);
-    
+    hashmap_free(watcher->watched_dirs);
+
     watcher_clear_event_batch(watcher->event_batch);
 
     pthread_cond_destroy(watcher->cond);
@@ -100,6 +108,7 @@ int watcher_free(struct watcher *watcher)
     free(watcher->lock);
 
     watcher->should_include_dir = NULL;
+
     watcher->root_dirs = NULL;
 
     watcher->watched_dirs = NULL;
@@ -224,14 +233,18 @@ watcher_start_watching_thr(void *data)
                     continue;
                 }
 
+                if(event->mask & IN_IGNORED) {
+                    continue;
+                }
+
+                size_t iter_wd = 0;
+                void *item_wd;
                 char *event_dir = NULL;
-                vec_for_each2(struct watched_dir, watched_dir, watcher->watched_dirs)
+                while (hashmap_iter(watcher->watched_dirs, &iter_wd, &item_wd))
                 {
-                    if (watched_dir->wd == event->wd)
-                    {
-                        event_dir = watched_dir->dir;
-                        break;
-                    }
+                    const struct watched_dir *w_dir = item_wd;
+                    if (w_dir->wd == event->wd)
+                        event_dir = w_dir->dir;
                 }
 
                 if (!event_dir)
@@ -253,10 +266,7 @@ watcher_start_watching_thr(void *data)
             }
 
             if (dir_action)
-            {
-                rm_and_free_watched_dirs(watcher);
                 init_and_add_watched_dirs(watcher, notify_fd);
-            }
 
             pthread_mutex_lock(watcher->lock);
 
@@ -270,7 +280,7 @@ watcher_start_watching_thr(void *data)
         }
     }
 
-    rm_and_free_watched_dirs(watcher);
+    hashmap_clear(watcher->watched_dirs, 0);
     close(notify_fd);
 
     return 0;
@@ -279,10 +289,11 @@ watcher_start_watching_thr(void *data)
 static void
 init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
 {
+    struct hashmap *scanned_dirs_map = hashmap_new(sizeof(char *), 0, 0, 0,
+                                                   str_hash, str_compare, &free_pointer_to_string, NULL);
     vec_for_each2(char *, r_dir, watcher->root_dirs)
     {
         vec_scoped char **dirs = get_directories_recursive(*r_dir);
-
         vec_for_each2(char *, dir_p, dirs)
         {
             char *dir = *dir_p;
@@ -292,45 +303,90 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
                 continue;
             }
 
-            // TODO: Idk if it is necessary to check for duplicate directories
-            //       inotify_add_watch is smart and reuses wd for duplicate dirs
-            //       this just means that we might have trash in watched_dirs array
-            //       if it becomes a problem code bellow should do the trick
-            //
-            // bool already_exists = false;
-            // vec_for_each2(struct watched_dir, w_dir, *watched_dirs)
-            // {
-            //     if (strncmp(dir, w_dir->dir, strlen(dir)) == 0)
-            //     {
-            //         already_exists = true;
-            //         break;
-            //     }
-            // }
-
-            // if (already_exists)
-            //     continue;
-
-            unsigned int eventMask = IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVE | IN_DELETE_SELF | IN_MOVE_SELF;
-            int wd = inotify_add_watch(notify_fd, dir, eventMask);
-            struct watched_dir wtd = {
-                .dir = dir,
-                .wd = wd,
-                .notify_fd = notify_fd};
-
-            vec_push(watcher->watched_dirs, wtd);
+            char **replaced = (char **)hashmap_set(scanned_dirs_map, &dir);
+            if (replaced)
+                free(*replaced);
         }
     }
 
-    log_debug("(watcher) Now watching %d dirs\n", vec_length(watcher->watched_dirs));
+    size_t iter_wd = 0;
+    void *item_wd;
+    while (hashmap_iter(watcher->watched_dirs, &iter_wd, &item_wd))
+    {
+        const struct watched_dir *w_dir = item_wd;
+        if (!hashmap_get(scanned_dirs_map, &w_dir->dir))
+        {
+            // TODO: this is not ideal, find other way to iterate it without having to reset the cursor after each delete
+            iter_wd = 0;
+            // We need to copy here because after hashmap_delete pointer moves
+            struct watched_dir w_dir_cp = *w_dir;
+            hashmap_delete(watcher->watched_dirs, &w_dir_cp);
+
+            inotify_rm_watch(w_dir->notify_fd, w_dir_cp.wd);
+            free_watched_dir((void *)&w_dir_cp);
+        }
+    }
+
+    size_t iter_sd = 0;
+    void *item_sd;
+    while (hashmap_iter(scanned_dirs_map, &iter_sd, &item_sd))
+    {
+        char **dir = item_sd;
+        struct watched_dir search_dir = {.dir = *dir};
+
+        if (!hashmap_get(watcher->watched_dirs, &search_dir))
+        {
+            unsigned int eventMask = IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVE | IN_DELETE_SELF | IN_MOVE_SELF;
+            int wd = inotify_add_watch(notify_fd, *dir, eventMask);
+
+            struct watched_dir wtd;
+            wtd.dir = str_dup(*dir);
+            wtd.wd = wd;
+            wtd.notify_fd = notify_fd;
+
+            hashmap_set(watcher->watched_dirs, &wtd);
+        }
+    }
+
+    hashmap_free(scanned_dirs_map);
+
+    log_debug("(watcher) Now watching %d dirs\n", hashmap_count(watcher->watched_dirs));
 }
 
-static void
-rm_and_free_watched_dirs(struct watcher *watcher)
+static void free_watched_dir(void *item)
 {
-    struct watched_dir w_dir;
-    while (!vec_pop(watcher->watched_dirs, &w_dir))
-    {
-        inotify_rm_watch(w_dir.notify_fd, w_dir.wd);
-        free(w_dir.dir);
-    }
+    struct watched_dir *w_dir = item;
+    free(w_dir->dir);
+}
+
+static void free_pointer_to_string(void *item)
+{
+    char **str = item;
+    free(*str);
+}
+
+static int str_compare(const void *a, const void *b, void *udata)
+{
+    const char *const *sa = a;
+    const char *const *sb = b;
+    return strcmp(*sa, *sb);
+}
+
+static uint64_t str_hash(const void *item, uint64_t seed0, uint64_t seed1)
+{
+    const char *const *str = item;
+    return hashmap_sip(*str, strlen(*str), seed0, seed1);
+}
+
+static int watched_dir_compare(const void *a, const void *b, void *udata)
+{
+    const struct watched_dir *wa = a;
+    const struct watched_dir *wb = b;
+    return strcmp(wa->dir, wb->dir);
+}
+
+static uint64_t watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1)
+{
+    const struct watched_dir *dir = item;
+    return hashmap_sip(dir->dir, strlen(dir->dir), seed0, seed1);
 }

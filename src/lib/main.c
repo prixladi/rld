@@ -68,7 +68,7 @@ int entrypoint(int argc, char **argv)
 
     vec_scoped char **root_dirs = vec_create_prealloc(char *, 2);
     vec_push(root_dirs, "./run");
-    vec_push(root_dirs, "./run/i");
+    vec_push(root_dirs, "./run");
 
     struct watcher *watcher = watcher_create(root_dirs, &should_include_dir);
     watcher_g = watcher;

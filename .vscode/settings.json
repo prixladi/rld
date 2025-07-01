@@ -13,6 +13,11 @@
         "string.h": "c",
         "fs.h": "c",
         "memory.h": "c",
-        "watcher.h": "c"
+        "watcher.h": "c",
+        "text_encoding": "c",
+        "typeinfo": "c",
+        "map": "c",
+        "format": "c",
+        "hashmap.h": "c"
     }
 }

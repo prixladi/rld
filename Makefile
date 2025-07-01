@@ -19,5 +19,12 @@ build_debug_address: FLAGS += -fsanitize=undefined,address -g -D __DEBUG__
 build_debug_address: setup
 	$(CC) $(FLAGS) $(SOURCES) -o ./build/reload-debug
 
+build_debug_thread: FLAGS += -fsanitize=undefined,thread -g -D __DEBUG__
+build_debug_thread: setup
+	$(CC) $(FLAGS) $(SOURCES) -o ./build/reload-debug
+
+run_debug_thread: build_debug_thread
+	./build/reload-debug -w ./run
+
 run_debug_address: build_debug_address
 	./build/reload-debug -w ./run
