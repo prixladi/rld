@@ -15,35 +15,39 @@
 #include "watcher.h"
 #include "runner.h"
 
-struct state
+struct watcher_state
 {
-    struct config *config;
-
     struct watcher *watcher;
 
-    pthread_mutex_t *lock;
-    pthread_cond_t *cond;
+    pthread_t thr;
+    bool exiting;
+
     struct changed_file *changed_files;
     bool dir_structure_changed;
     time_t last_change_timestamp;
 
-    pthread_t build_thr;
-    pid_t build_pid;
-    pid_t run_pid;
-    pthread_mutex_t *build_lock;
-    pthread_cond_t *build_cond;
-    bool build_exiting;
+    pthread_mutex_t *lock;
+    pthread_cond_t *cond;
 };
 
-struct res
+struct executor_state
 {
-    int *status_code;
+    char **build_command;
+    char **run_command;
+
+    pthread_t thr;
+    bool exiting;
+
+    pid_t build_pid;
+    pid_t run_pid;
+
+    pthread_mutex_t *lock;
 };
 
 static void *
-read_loop_thr(void *data)
+watcher_loop(void *data)
 {
-    struct state *state = data;
+    struct watcher_state *state = data;
 
     int res = 0;
     struct watcher_event_batch batch;
@@ -98,48 +102,48 @@ read_loop_thr(void *data)
 }
 
 static void *
-build_run_thr(void *data)
+executor(void *data)
 {
-    struct state *state = data;
+    struct executor_state *state = data;
 
-    pthread_mutex_lock(state->build_lock);
+    pthread_mutex_lock(state->lock);
 
-    if (state->build_exiting)
+    if (state->exiting)
     {
-        pthread_mutex_unlock(state->build_lock);
+        pthread_mutex_unlock(state->lock);
         return NULL;
     }
     log_info("Starting build command\n");
-    pid_t pid = process_start(state->config->build_command);
+    pid_t pid = process_start(state->build_command);
     state->build_pid = pid;
 
-    pthread_mutex_unlock(state->build_lock);
+    pthread_mutex_unlock(state->lock);
 
     int status_code = process_wait(pid);
 
-    pthread_mutex_lock(state->build_lock);
+    pthread_mutex_lock(state->lock);
     state->build_pid = 0;
 
-    if (!state->build_exiting)
+    if (!state->exiting)
     {
-        pthread_mutex_unlock(state->build_lock);
+        pthread_mutex_unlock(state->lock);
 
         if (status_code == 0)
         {
             log_info("Build command completed successfully\n");
 
-            pthread_mutex_lock(state->build_lock);
+            pthread_mutex_lock(state->lock);
 
             log_info("Starting run command\n");
-            pid_t run_pid = process_start(state->config->run_command);
+            pid_t run_pid = process_start(state->run_command);
 
             state->run_pid = run_pid;
 
-            pthread_mutex_unlock(state->build_lock);
+            pthread_mutex_unlock(state->lock);
 
             int run_status_code = process_wait(run_pid);
 
-            pthread_mutex_lock(state->build_lock);
+            pthread_mutex_lock(state->lock);
 
             state->run_pid = 0;
 
@@ -153,14 +157,14 @@ build_run_thr(void *data)
             else
                 log_info("Run command interupted\n");
 
-            pthread_mutex_unlock(state->build_lock);
+            pthread_mutex_unlock(state->lock);
         }
         else
             log_error("Build exited with error status code %d\n", status_code);
     }
     else
     {
-        pthread_mutex_unlock(state->build_lock);
+        pthread_mutex_unlock(state->lock);
         log_info("Build command interupted\n");
     }
 
@@ -180,7 +184,7 @@ graceful_stop_handler(int signal)
 }
 
 static void
-free_state(struct state *state)
+free_state(struct watcher_state *state)
 {
     watcher_free(state->watcher);
     vec_free(state->changed_files);
@@ -235,30 +239,32 @@ entrypoint(int argc, char **argv)
         return 1;
     }
 
-    pthread_mutex_t *build_lock = malloc(sizeof(pthread_mutex_t));
-    if (pthread_mutex_init(build_lock, NULL) != 0)
+    pthread_mutex_t *executor_lock = malloc(sizeof(pthread_mutex_t));
+    if (pthread_mutex_init(executor_lock, NULL) != 0)
     {
         log_critical("Unable to initialize state build lock");
         return 1;
     }
 
-    pthread_cond_t *build_cond = malloc(sizeof(pthread_cond_t));
-    if (pthread_cond_init(build_cond, NULL) != 0)
-    {
-        log_critical("Unable to initialize state build cond\n");
-        return 1;
-    }
+    struct executor_state executor_state = { .lock = executor_lock,
+                                             .build_command = config.build_command,
+                                             .run_command = config.run_command,
+                                             .exiting = false,
+                                             .thr = 0,
+                                             .build_pid = 0,
+                                             .run_pid = 0 };
 
-    struct state state = { .config = &config,
-                           .watcher = watcher,
-                           .changed_files = vec_create(struct changed_file),
-                           .lock = lock,
-                           .cond = cond,
-                           .build_lock = build_lock,
-                           .build_cond = build_cond };
+    struct watcher_state watcher_state = {
+        .watcher = watcher,
+        .changed_files = vec_create(struct changed_file),
+        .lock = lock,
+        .cond = cond,
+        .thr = 0,
+        .exiting = false,
+    };
 
-    pthread_t read_loot_thr;
-    pthread_create(&read_loot_thr, NULL, read_loop_thr, (void *)&state);
+    pthread_t read_loop_thr;
+    pthread_create(&read_loop_thr, NULL, watcher_loop, (void *)&watcher_state);
 
     bool is_first = true;
     for (;;)
@@ -266,24 +272,24 @@ entrypoint(int argc, char **argv)
         bool is_first_run = is_first;
         is_first = false;
 
-        pthread_mutex_lock(state.lock);
+        pthread_mutex_lock(watcher_state.lock);
 
-        bool no_change = !state.dir_structure_changed && vec_length(state.changed_files) == 0;
+        bool no_change = !watcher_state.dir_structure_changed && vec_length(watcher_state.changed_files) == 0;
 
         time_t current_ms = get_current_timestamp_in_ms();
 
-        bool should_debounce = state.last_change_timestamp && config.debounce_ms &&
-                               ((state.last_change_timestamp + config.debounce_ms) > current_ms);
+        bool should_debounce = watcher_state.last_change_timestamp && config.debounce_ms &&
+                               ((watcher_state.last_change_timestamp + config.debounce_ms) > current_ms);
 
         if (!is_first_run && (no_change || should_debounce))
         {
             if (no_change)
             {
-                pthread_cond_wait(state.cond, state.lock);
+                pthread_cond_wait(watcher_state.cond, watcher_state.lock);
             }
             else
             {
-                time_t debounce_diff = current_ms - state.last_change_timestamp + config.debounce_ms;
+                time_t debounce_diff = current_ms - watcher_state.last_change_timestamp + config.debounce_ms;
 
                 struct timeval tp;
                 struct timespec ts;
@@ -297,35 +303,35 @@ entrypoint(int argc, char **argv)
                 ts.tv_sec += ts.tv_nsec / 1000000000L;
                 ts.tv_nsec = ts.tv_nsec % 1000000000L;
 
-                pthread_cond_timedwait(state.cond, state.lock, &ts);
+                pthread_cond_timedwait(watcher_state.cond, watcher_state.lock, &ts);
             }
 
-            pthread_mutex_unlock(state.lock);
+            pthread_mutex_unlock(watcher_state.lock);
             continue;
         }
 
-        if (state.build_thr)
+        if (executor_state.thr)
         {
-            state.build_exiting = true;
+            executor_state.exiting = true;
 
-            if (state.run_pid)
-                process_kill(state.run_pid);
-            if (state.build_pid)
-                process_kill(state.build_pid);
+            if (executor_state.run_pid)
+                process_kill(executor_state.run_pid);
+            if (executor_state.build_pid)
+                process_kill(executor_state.build_pid);
 
-            pthread_mutex_unlock(state.lock);
+            pthread_mutex_unlock(watcher_state.lock);
 
-            pthread_join(state.build_thr, NULL);
-            state.build_exiting = false;
-            state.build_thr = 0;
+            pthread_join(executor_state.thr, NULL);
+            executor_state.exiting = false;
+            executor_state.thr = 0;
 
             continue;
         }
 
-        bool should_rebuild = state.dir_structure_changed || is_first_run;
+        bool should_rebuild = watcher_state.dir_structure_changed || is_first_run;
         if (!should_rebuild)
         {
-            vec_for_each2(struct changed_file, cf, state.changed_files)
+            vec_for_each2(struct changed_file, cf, watcher_state.changed_files)
             {
                 if (should_include_file_change(cf))
                 {
@@ -335,23 +341,23 @@ entrypoint(int argc, char **argv)
             }
         }
 
-        state.dir_structure_changed = false;
-        _vector_field_set(state.changed_files, LENGTH, 0);
+        watcher_state.dir_structure_changed = false;
+        _vector_field_set(watcher_state.changed_files, LENGTH, 0);
 
-        pthread_mutex_unlock(state.lock);
+        pthread_mutex_unlock(watcher_state.lock);
 
         if (!should_rebuild)
             continue;
 
-        pthread_t build_thr;
-        pthread_create(&build_thr, NULL, build_run_thr, (void *)&state);
-        state.build_thr = build_thr;
+        pthread_t executor_thr;
+        pthread_create(&executor_thr, NULL, executor, (void *)&executor_state);
+        executor_state.thr = executor_thr;
     }
 
     watcher_join(watcher);
-    pthread_join(read_loot_thr, NULL);
+    pthread_join(read_loop_thr, NULL);
 
-    free_state(&state);
+    free_state(&watcher_state);
 
     free_config(&config);
     return 0;
