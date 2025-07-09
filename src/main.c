@@ -61,11 +61,11 @@ commands_free(struct command *commands, struct context *context)
 bool
 should_include_dir(char *dir)
 {
-    return str_starts_with(dir, "./run");
+    return !str_starts_with(dir, "./run2");
 }
 
 bool
-should_include_file_change(char *dir, char * file_name)
+should_include_file_change(char *dir, char *file_name)
 {
     return str_ends_with(file_name, ".c");
 }

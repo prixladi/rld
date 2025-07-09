@@ -18,6 +18,9 @@
 #define EVENT_SIZE (sizeof(struct inotify_event))
 #define BUF_LEN (1024 * (EVENT_SIZE + 16))
 
+#define WATCHED_EVENT_MASK (IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVE | IN_DELETE_SELF | IN_MOVE_SELF)
+#define DIR_EVENT_MASK (IN_ISDIR | IN_DELETE_SELF | IN_MOVE_SELF)
+
 struct watched_dir
 {
     char *dir;
@@ -101,7 +104,7 @@ watcher_free(struct watcher *watcher)
 
     hashmap_free(watcher->watched_dirs);
 
-    watcher_clear_event_batch(watcher->event_batch);
+    watcher_clear_event_batch(&watcher->event_batch);
 
     pthread_cond_destroy(watcher->cond);
     free(watcher->cond);
@@ -160,36 +163,30 @@ watcher_join(struct watcher *watcher)
 int
 watcher_read_event_batch(struct watcher *watcher, struct watcher_event_batch *batch)
 {
+    pthread_mutex_lock(watcher->lock);
     for (; !watcher->stoped;)
     {
-        pthread_mutex_lock(watcher->lock);
-
         bool batch_is_empty = !watcher->event_batch.dir_structure_changed &&
                               !vec_length(watcher->event_batch.file_events);
         if (!batch_is_empty)
         {
             memcpy(batch, &watcher->event_batch, sizeof(struct watcher_event_batch));
-
             watcher->event_batch.dir_structure_changed = false;
             watcher->event_batch.file_events = vec_create(struct watcher_file_event);
+            pthread_mutex_unlock(watcher->lock);
+            break;
         }
 
-        if (batch_is_empty)
-            pthread_cond_wait(watcher->cond, watcher->lock);
-
-        pthread_mutex_unlock(watcher->lock);
-
-        if (!batch_is_empty)
-            break;
+        pthread_cond_wait(watcher->cond, watcher->lock);
     }
 
     return watcher->stoped ? -1 : 0;
 }
 
 int
-watcher_clear_event_batch(struct watcher_event_batch batch)
+watcher_clear_event_batch(struct watcher_event_batch *batch)
 {
-    vec_for_each2(struct watcher_file_event, event, batch.file_events)
+    vec_for_each2(struct watcher_file_event, event, batch->file_events)
     {
         free(event->file_name);
         free(event->dir);
@@ -198,10 +195,10 @@ watcher_clear_event_batch(struct watcher_event_batch batch)
         event->dir = NULL;
     }
 
-    vec_free(batch.file_events);
+    vec_free(batch->file_events);
 
-    batch.file_events = NULL;
-    batch.dir_structure_changed = false;
+    batch->file_events = NULL;
+    batch->dir_structure_changed = false;
 }
 
 static void *
@@ -223,77 +220,71 @@ watcher_start_watching_thr(void *data)
 
         // TODO: Use pselect or other fd for instant interruption, this causes delay of the timeout duration on exit
         int select_status = select(notify_fd + 1, &read_fds, NULL, NULL, &timeout);
-        if (select_status > 0 && FD_ISSET(notify_fd, &read_fds) && !watcher->stoped)
+        if (select_status <= 0 || !FD_ISSET(notify_fd, &read_fds) || watcher->stoped)
+            continue;
+
+        int length = read(notify_fd, buffer, BUF_LEN);
+
+        bool dir_action = false;
+        vec_scoped struct watcher_file_event *file_events = vec_create(struct watcher_file_event);
+
+        for (int i = 0; i < length;)
         {
-            int length = read(notify_fd, buffer, BUF_LEN);
+            struct inotify_event *event = (struct inotify_event *)&buffer[i];
+            i += EVENT_SIZE + event->len;
 
-            bool dir_action = false;
-            vec_scoped struct watcher_file_event *file_events = vec_create(struct watcher_file_event);
+            dir_action = event->mask & DIR_EVENT_MASK;
+            if (event->mask & (DIR_EVENT_MASK | IN_IGNORED))
+                continue;
 
-            for (int i = 0; i < length;)
+            size_t iter_wd = 0;
+            void *item_wd;
+            char *event_dir = NULL;
+            while (hashmap_iter(watcher->watched_dirs, &iter_wd, &item_wd))
             {
-                struct inotify_event *event = (struct inotify_event *)&buffer[i];
-                i += EVENT_SIZE + event->len;
-
-                if (event->mask & (IN_ISDIR | IN_DELETE_SELF | IN_MOVE_SELF))
-                {
-                    dir_action = true;
-                    continue;
-                }
-
-                if (event->mask & IN_IGNORED)
-                {
-                    continue;
-                }
-
-                size_t iter_wd = 0;
-                void *item_wd;
-                char *event_dir = NULL;
-                while (hashmap_iter(watcher->watched_dirs, &iter_wd, &item_wd))
-                {
-                    const struct watched_dir *w_dir = item_wd;
-                    if (w_dir->wd == event->wd)
-                        event_dir = w_dir->dir;
-                }
-
-                if (!event_dir)
-                {
-                    log_critical("(watcher) IO Event occurred on wd '%d' that is not included in list of active watchers\n",
-                                 event->wd);
-                    continue;
-                }
-
-                if (watcher->should_include_file_change && !watcher->should_include_file_change(event_dir, event->name))
-                {
-                    log_debug("(watcher) file '%s' in directory '%s' change ignored\n", event->name, event_dir);
-                    continue;
-                }
-
-                struct watcher_file_event file_event = { .dir = str_dup(event_dir),
-                                                         .file_name = str_dup(event->name),
-                                                         .created = event->mask & IN_CREATE,
-                                                         .deleted = event->mask & IN_DELETE,
-                                                         .modified = event->mask & IN_CLOSE_WRITE,
-                                                         .moved_from = event->mask & IN_MOVED_FROM,
-                                                         .moved_to = event->mask & IN_MOVED_TO,
-                                                         .timestamp = time(NULL) };
-
-                vec_push(file_events, file_event);
+                const struct watched_dir *w_dir = item_wd;
+                if (w_dir->wd == event->wd)
+                    event_dir = w_dir->dir;
             }
 
-            if (dir_action)
-                init_and_add_watched_dirs(watcher, notify_fd);
+            if (!event_dir)
+            {
+                log_critical("(watcher) IO Event occurred on wd '%d' that is not included in list of active watchers\n",
+                             event->wd);
+                continue;
+            }
 
-            pthread_mutex_lock(watcher->lock);
+            if (watcher->should_include_file_change && !watcher->should_include_file_change(event_dir, event->name))
+            {
+                log_debug("(watcher) file '%s' in directory '%s' change ignored\n", event->name, event_dir);
+                continue;
+            }
 
-            if (dir_action)
-                watcher->event_batch.dir_structure_changed = true;
-            if (vec_length(file_events))
-                vec_push_many(watcher->event_batch.file_events, file_events);
+            struct watcher_file_event file_event = { 0 };
+            file_event.dir = str_dup(event_dir);
+            file_event.file_name = str_dup(event->name);
+            file_event.created = event->mask & IN_CREATE;
+            file_event.deleted = event->mask & IN_DELETE;
+            file_event.modified = event->mask & IN_CLOSE_WRITE;
+            file_event.moved_from = event->mask & IN_MOVED_FROM;
+            file_event.moved_to = event->mask & IN_MOVED_TO;
+            file_event.timestamp = time(NULL);
 
-            pthread_mutex_unlock(watcher->lock);
-            pthread_cond_broadcast(watcher->cond);
+            vec_push(file_events, file_event);
         }
+
+        if (dir_action)
+            init_and_add_watched_dirs(watcher, notify_fd);
+
+        pthread_mutex_lock(watcher->lock);
+
+        if (dir_action)
+            watcher->event_batch.dir_structure_changed = true;
+        if (vec_length(file_events))
+            vec_push_many(watcher->event_batch.file_events, file_events);
+
+        pthread_mutex_unlock(watcher->lock);
+        pthread_cond_broadcast(watcher->cond);
     }
 
     hashmap_clear(watcher->watched_dirs, 0);
@@ -331,17 +322,17 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
     while (hashmap_iter(watcher->watched_dirs, &iter_wd, &item_wd))
     {
         const struct watched_dir *w_dir = item_wd;
-        if (!hashmap_get(scanned_dirs_map, &w_dir->dir))
-        {
-            // TODO: this is not ideal, find other way to iterate it without having to reset the cursor after each delete
-            iter_wd = 0;
-            // We need to copy here because after hashmap_delete pointer moves
-            struct watched_dir w_dir_cp = *w_dir;
-            hashmap_delete(watcher->watched_dirs, &w_dir_cp);
+        if (hashmap_get(scanned_dirs_map, &w_dir->dir))
+            continue;
 
-            inotify_rm_watch(w_dir->notify_fd, w_dir_cp.wd);
-            free_watched_dir((void *)&w_dir_cp);
-        }
+        // TODO: this is not ideal, find other way to iterate it without having to reset the cursor after each delete
+        iter_wd = 0;
+        // We need to copy here because after hashmap_delete pointer moves
+        struct watched_dir w_dir_cp = *w_dir;
+        hashmap_delete(watcher->watched_dirs, &w_dir_cp);
+
+        inotify_rm_watch(w_dir->notify_fd, w_dir_cp.wd);
+        free_watched_dir((void *)&w_dir_cp);
     }
 
     size_t iter_sd = 0;
@@ -351,18 +342,15 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
         char **dir = item_sd;
         struct watched_dir search_dir = { .dir = *dir };
 
-        if (!hashmap_get(watcher->watched_dirs, &search_dir))
-        {
-            unsigned int eventMask = IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVE | IN_DELETE_SELF | IN_MOVE_SELF;
-            int wd = inotify_add_watch(notify_fd, *dir, eventMask);
+        if (hashmap_get(watcher->watched_dirs, &search_dir))
+            continue;
 
-            struct watched_dir wtd;
-            wtd.dir = str_dup(*dir);
-            wtd.wd = wd;
-            wtd.notify_fd = notify_fd;
+        struct watched_dir wtd;
+        wtd.dir = str_dup(*dir);
+        wtd.wd = inotify_add_watch(notify_fd, *dir, WATCHED_EVENT_MASK);
+        wtd.notify_fd = notify_fd;
 
-            hashmap_set(watcher->watched_dirs, &wtd);
-        }
+        hashmap_set(watcher->watched_dirs, &wtd);
     }
 
     hashmap_free(scanned_dirs_map);

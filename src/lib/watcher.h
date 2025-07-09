@@ -31,6 +31,6 @@ int watcher_signal_stop(struct watcher *watcher);
 int watcher_join(struct watcher *watcher);
 
 int watcher_read_event_batch(struct watcher *watcher, struct watcher_event_batch *batch);
-int watcher_clear_event_batch(struct watcher_event_batch batch);
+int watcher_clear_event_batch(struct watcher_event_batch *batch);
 
 #endif

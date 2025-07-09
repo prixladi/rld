@@ -101,7 +101,7 @@ watcher_loop(void *data)
         state->last_change_timestamp = get_current_timestamp_in_ms();
 
         pthread_mutex_unlock(state->lock);
-        watcher_clear_event_batch(batch);
+        watcher_clear_event_batch(&batch);
 
         pthread_cond_broadcast(state->cond);
     }
@@ -311,8 +311,8 @@ entrypoint(int argc, char **argv)
 
     watcher_state_g = &watcher_state;
 
-    pthread_t read_loop_thr;
-    pthread_create(&read_loop_thr, NULL, watcher_loop, (void *)&watcher_state);
+    pthread_t watcher_loop_thr;
+    pthread_create(&watcher_loop_thr, NULL, watcher_loop, (void *)&watcher_state);
 
     bool is_first = true;
     for (; !exiting_g;)
@@ -404,7 +404,7 @@ entrypoint(int argc, char **argv)
     executor_stop_if_needed(&executor_state, &context);
 
     watcher_join(watcher);
-    pthread_join(read_loop_thr, NULL);
+    pthread_join(watcher_loop_thr, NULL);
 
     watcher_state_free(&watcher_state);
     executor_state_free(&executor_state);
