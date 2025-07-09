@@ -4,10 +4,12 @@
 
 #include <sys/types.h>
 #include <sys/inotify.h>
+#include <sys/time.h>
 
 #include "utils/vector.h"
 #include "utils/string.h"
 #include "utils/log.h"
+#include "utils/time.h"
 
 #include "main.h"
 #include "watcher.h"
@@ -23,6 +25,7 @@ struct state
     pthread_cond_t *cond;
     struct changed_file *changed_files;
     bool dir_structure_changed;
+    time_t last_change_timestamp;
 
     pthread_t build_thr;
     pid_t build_pid;
@@ -76,6 +79,8 @@ read_loop_thr(void *data)
         }
 
         state->dir_structure_changed |= batch.dir_structure_changed;
+
+        state->last_change_timestamp = get_current_timestamp_in_ms();
 
         pthread_mutex_unlock(state->lock);
         watcher_clear_event_batch(batch);
@@ -255,19 +260,50 @@ entrypoint(int argc, char **argv)
     pthread_t read_loot_thr;
     pthread_create(&read_loot_thr, NULL, read_loop_thr, (void *)&state);
 
-    bool isFirst = true;
+    bool is_first = true;
     for (;;)
     {
+        bool is_first_run = is_first;
+        is_first = false;
+
         pthread_mutex_lock(state.lock);
 
-        if (!isFirst && !state.dir_structure_changed && vec_length(state.changed_files) == 0)
+        bool no_change = !state.dir_structure_changed && vec_length(state.changed_files) == 0;
+
+        time_t current_ms = get_current_timestamp_in_ms();
+
+        bool should_debounce = state.last_change_timestamp && config.debounce_ms &&
+                               ((state.last_change_timestamp + config.debounce_ms) > current_ms);
+
+        if (!is_first_run && (no_change || should_debounce))
         {
-            pthread_cond_wait(state.cond, state.lock);
+            if (no_change)
+            {
+                pthread_cond_wait(state.cond, state.lock);
+            }
+            else
+            {
+                time_t debounce_diff = current_ms - state.last_change_timestamp + config.debounce_ms;
+
+                struct timeval tp;
+                struct timespec ts;
+                int rc = gettimeofday(&tp, NULL);
+
+                ts.tv_sec = tp.tv_sec;
+                ts.tv_nsec = tp.tv_usec * 1000;
+
+                ts.tv_nsec += debounce_diff * 1000000;
+
+                ts.tv_sec += ts.tv_nsec / 1000000000L;
+                ts.tv_nsec = ts.tv_nsec % 1000000000L;
+
+                pthread_cond_timedwait(state.cond, state.lock, &ts);
+            }
+
             pthread_mutex_unlock(state.lock);
             continue;
         }
 
-        isFirst = false;
         if (state.build_thr)
         {
             state.build_exiting = true;
@@ -286,10 +322,26 @@ entrypoint(int argc, char **argv)
             continue;
         }
 
+        bool should_rebuild = state.dir_structure_changed || is_first_run;
+        if (!should_rebuild)
+        {
+            vec_for_each2(struct changed_file, cf, state.changed_files)
+            {
+                if (should_include_file_change(cf))
+                {
+                    should_rebuild = true;
+                    break;
+                }
+            }
+        }
+
         state.dir_structure_changed = false;
         _vector_field_set(state.changed_files, LENGTH, 0);
 
         pthread_mutex_unlock(state.lock);
+
+        if (!should_rebuild)
+            continue;
 
         pthread_t build_thr;
         pthread_create(&build_thr, NULL, build_run_thr, (void *)&state);

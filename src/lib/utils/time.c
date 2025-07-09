@@ -1,5 +1,6 @@
 #include <pthread.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "time.h"
 
@@ -28,4 +29,13 @@ sleep_ns(int ns)
     struct timespec r;
 
     nanosleep(&t, &r);
+}
+
+time_t
+get_current_timestamp_in_ms()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    return (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
 }

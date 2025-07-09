@@ -30,6 +30,8 @@ struct config
 {
     char **watch_paths;
     char *work_dir;
+    int debounce_ms;
+
     void *user_data;
 
     char **build_command;
@@ -40,5 +42,6 @@ struct config create_config(struct context *context);
 void free_config(struct config *context);
 
 bool should_include_dir(char *dir);
+bool should_include_file_change(struct changed_file *cf);
 
 #endif

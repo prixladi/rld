@@ -9,6 +9,7 @@ char *_str_concat(const char *fst, ...);
 #define str_concat(...) _str_concat(__VA_ARGS__, NULL)
 
 bool str_starts_with(const char *str, const char *prefix);
+bool str_ends_with(const char *str, const char *suffix);
 
 char *int_to_str(int i);
 char *unsigned_long_to_str(unsigned long i);

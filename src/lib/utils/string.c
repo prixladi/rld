@@ -77,6 +77,21 @@ str_starts_with(const char *str, const char *prefix)
     return strncmp(prefix, str, strlen(prefix)) == 0;
 }
 
+bool
+str_ends_with(const char *str, const char *suffix)
+{
+    if (!str || !suffix)
+        return false;
+
+    size_t lenstr = strlen(str);
+    size_t lensuffix = strlen(suffix);
+
+    if (lensuffix > lenstr)
+        return false;
+
+    return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
+}
+
 char *
 int_to_str(int i)
 {

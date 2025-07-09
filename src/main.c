@@ -12,7 +12,8 @@ create_config(struct context *context)
 {
     struct config config = { .watch_paths = vec_create_prealloc(char *, 2),
                              .build_command = vec_create_prealloc(char *, 3),
-                             .run_command = vec_create_prealloc(char *, 3) };
+                             .run_command = vec_create_prealloc(char *, 3),
+                             .debounce_ms = 500 };
 
     vec_push(config.watch_paths, "./run");
     vec_push(config.watch_paths, "./run2");
@@ -29,10 +30,10 @@ create_config(struct context *context)
     vec_push(config.build_command, "gcc");
     vec_push(config.build_command, "./run/main.c");
     vec_push(config.build_command, "-o");
-    vec_push(config.build_command, "run.out");
+    vec_push(config.build_command, "./run/run.out");
     vec_push(config.build_command, NULL);
 
-    vec_push(config.run_command, "./run.out");
+    vec_push(config.run_command, "./run/run.out");
     vec_push(config.run_command, "reload");
     vec_push(config.run_command, NULL);
 
@@ -43,6 +44,12 @@ bool
 should_include_dir(char *dir)
 {
     return str_starts_with(dir, "./run");
+}
+
+bool
+should_include_file_change(struct changed_file *cf)
+{
+    return str_ends_with(cf->file_name, ".c");
 }
 
 void
