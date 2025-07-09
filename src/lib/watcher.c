@@ -29,6 +29,7 @@ struct watcher
 {
     char **root_dirs;
     bool (*should_include_dir)(char *);
+    bool (*should_include_file_change)(char *, char *);
 
     pthread_t watching_thr;
     bool stoped;
@@ -51,7 +52,7 @@ static int watched_dir_compare(const void *a, const void *b, void *udata);
 static uint64_t watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1);
 
 struct watcher *
-watcher_create(char **root_dirs, bool (*should_include_dir)(char *))
+watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*should_include_file_change)(char *, char *))
 {
     struct watcher *watcher = calloc(1, sizeof(struct watcher));
 
@@ -61,6 +62,7 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *))
     watcher->stoped = true;
     watcher->root_dirs = r_dirs;
     watcher->should_include_dir = should_include_dir;
+    watcher->should_include_file_change = should_include_file_change;
 
     watcher->watched_dirs =
         hashmap_new(sizeof(struct watched_dir), 0, 0, 0, str_hash, str_compare, &free_watched_dir, NULL);
@@ -261,6 +263,12 @@ watcher_start_watching_thr(void *data)
                     continue;
                 }
 
+                if (watcher->should_include_file_change && !watcher->should_include_file_change(event_dir, event->name))
+                {
+                    log_debug("(watcher) file '%s' in directory '%s' change ignored\n", event->name, event_dir);
+                    continue;
+                }
+
                 struct watcher_file_event file_event = { .dir = str_dup(event_dir),
                                                          .file_name = str_dup(event->name),
                                                          .created = event->mask & IN_CREATE,
@@ -307,6 +315,7 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
             char *dir = *dir_p;
             if (watcher->should_include_dir && !watcher->should_include_dir(dir))
             {
+                log_debug("(watcher) directory '%s' ignored\n", dir);
                 free(dir);
                 continue;
             }

@@ -42,16 +42,19 @@ struct config
     void *user_data;
 };
 
-struct config create_config(struct context *context);
-void free_config(struct config *context);
+struct command
+{
+    char *name;
+    char **exec;
+};
 
-char **get_build_command(struct changes_context *changes_context, struct context *context);
-void free_build_command(char **command, struct context *context);
+struct config config_create(struct context *context);
+void config_free(struct config *context);
 
-char **get_run_command(struct changes_context *changes_context, struct context *context);
-void free_run_command(char **command, struct context *context);
+struct command *commands_create(struct changes_context *changes_context, struct context *context);
+void commands_free(struct command *commands, struct context *context);
 
 bool should_include_dir(char *dir);
-bool should_include_file_change(struct changed_file *cf);
+bool should_include_file_change(char *dir, char *file_name);
 
 #endif

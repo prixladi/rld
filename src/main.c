@@ -8,7 +8,7 @@
 __MAIN
 
 struct config
-create_config(struct context *context)
+config_create(struct context *context)
 {
     struct config config = {
         .watch_paths = vec_create_prealloc(char *, 2), .debounce_ms = 500, .work_dir = NULL, .user_data = NULL
@@ -20,42 +20,42 @@ create_config(struct context *context)
     return config;
 }
 
-char **
-get_build_command(struct changes_context *changes_context, struct context *context)
+struct command *
+commands_create(struct changes_context *changes_context, struct context *context)
 {
-    char **command = vec_create_prealloc(char *, 5);
+    char **build_exec = vec_create_prealloc(char *, 4);
 
-    vec_push(command, "gcc");
-    vec_push(command, "./run/main.c");
-    vec_push(command, "-o");
-    vec_push(command, "./run/run.out");
-    vec_push(command, NULL);
+    vec_push(build_exec, "gcc");
+    vec_push(build_exec, "./run/main.c");
+    vec_push(build_exec, "-o");
+    vec_push(build_exec, "./run/run.out");
 
-    return command;
+    char **run_exec = vec_create_prealloc(char *, 2);
+
+    vec_push(run_exec, "./run/run.out");
+    vec_push(run_exec, "reload");
+
+    struct command *commands = vec_create_prealloc(struct command, 5);
+
+    struct command build_command = { .name = "build", .exec = build_exec };
+    struct command run_command = { .name = "execute", .exec = run_exec };
+
+    vec_push(commands, build_command);
+    vec_push(commands, run_command);
+
+    return commands;
 }
 
 void
-free_build_command(char **command, struct context *context)
+commands_free(struct command *commands, struct context *context)
 {
-    vec_free(command);
-}
+    vec_for_each2(struct command, command, commands)
+    {
+        vec_free(command->exec);
+        command->exec = NULL;
+    }
 
-char **
-get_run_command(struct changes_context *changes_context, struct context *context)
-{
-    char **command = vec_create_prealloc(char *, 5);
-
-    vec_push(command, "./run/run.out");
-    vec_push(command, "reload");
-    vec_push(command, NULL);
-
-    return command;
-}
-
-void
-free_run_command(char **command, struct context *context)
-{
-    vec_free(command);
+    vec_free(commands);
 }
 
 bool
@@ -65,13 +65,13 @@ should_include_dir(char *dir)
 }
 
 bool
-should_include_file_change(struct changed_file *cf)
+should_include_file_change(char *dir, char * file_name)
 {
-    return str_ends_with(cf->file_name, ".c");
+    return str_ends_with(file_name, ".c");
 }
 
 void
-free_config(struct config *config)
+config_free(struct config *config)
 {
     vec_free(config->watch_paths);
     config->watch_paths = NULL;

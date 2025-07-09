@@ -10,6 +10,7 @@
 #include "utils/string.h"
 #include "utils/log.h"
 #include "utils/time.h"
+#include "utils/memory.h"
 
 #include "main.h"
 #include "watcher.h"
@@ -30,19 +31,32 @@ struct watcher_state
     pthread_cond_t *cond;
 };
 
+struct command_state
+{
+    char *name;
+    char **exec;
+    pid_t pid;
+};
+
 struct executor_state
 {
-    char **build_command;
-    char **run_command;
+    struct command_state *commands;
 
     pthread_t thr;
     bool exiting;
 
-    pid_t build_pid;
-    pid_t run_pid;
-
     pthread_mutex_t *lock;
 };
+
+static void
+changed_file_free(struct changed_file cf)
+{
+    free(cf.file_name);
+    free(cf.dir);
+
+    cf.file_name = NULL;
+    cf.dir = NULL;
+}
 
 static void *
 watcher_loop(void *data)
@@ -100,65 +114,47 @@ executor(void *data)
 
     pthread_mutex_lock(state->lock);
 
-    if (state->exiting)
+    for (size_t i = 0; i < vec_length(state->commands); i++)
     {
-        pthread_mutex_unlock(state->lock);
-        return NULL;
-    }
-    log_info("Starting build command\n");
-    pid_t pid = process_start(state->build_command);
-    state->build_pid = pid;
+        struct command_state *command = &state->commands[i];
 
-    pthread_mutex_unlock(state->lock);
-
-    int status_code = process_wait(pid);
-
-    pthread_mutex_lock(state->lock);
-    state->build_pid = 0;
-
-    if (!state->exiting)
-    {
-        pthread_mutex_unlock(state->lock);
-
-        if (status_code == 0)
+        if (state->exiting)
         {
-            log_info("Build command completed successfully\n");
-
-            pthread_mutex_lock(state->lock);
-
-            log_info("Starting run command\n");
-            pid_t run_pid = process_start(state->run_command);
-
-            state->run_pid = run_pid;
-
             pthread_mutex_unlock(state->lock);
+            return NULL;
+        }
 
-            int run_status_code = process_wait(run_pid);
+        scoped char *command_desc = str_printf("%s (%d/%d)", command->name, i + 1, vec_length(state->commands));
 
-            pthread_mutex_lock(state->lock);
+        log_info("Starting command: '%s'\n", command_desc);
+        pid_t pid = process_start(command->exec);
+        command->pid = pid;
 
-            state->run_pid = 0;
+        pthread_mutex_unlock(state->lock);
 
-            if (state->run_pid == state->run_pid)
-            {
-                if (status_code == 0)
-                    log_info("Run command completed successfully\n");
-                else
-                    log_error("Run exited with error status code %d\n", status_code);
-            }
-            else
-                log_info("Run command interupted\n");
+        int status_code = process_wait(pid);
 
+        pthread_mutex_lock(state->lock);
+        command->pid = 0;
+
+        if (state->exiting)
+        {
             pthread_mutex_unlock(state->lock);
+            log_info("Command '%s' interupted\n", command_desc);
+            return NULL;
+        }
+
+        if (status_code != 0)
+        {
+            pthread_mutex_unlock(state->lock);
+            log_error("Command '%s' exited with error status code %d\n", command_desc, status_code);
+            return NULL;
         }
         else
-            log_error("Build exited with error status code %d\n", status_code);
+            log_info("Command '%s' completed successfully \n", command_desc);
     }
-    else
-    {
-        pthread_mutex_unlock(state->lock);
-        log_info("Build command interupted\n");
-    }
+
+    pthread_mutex_unlock(state->lock);
 
     return NULL;
 }
@@ -185,6 +181,7 @@ static void
 watcher_state_free(struct watcher_state *state)
 {
     watcher_free(state->watcher);
+    vec_for_each(state->changed_files, changed_file_free);
     vec_free(state->changed_files);
 
     pthread_cond_destroy(state->cond);
@@ -210,19 +207,8 @@ executor_state_free(struct executor_state *state)
 }
 
 static void
-changed_file_free(struct changed_file cf)
-{
-    free(cf.file_name);
-    free(cf.dir);
-
-    cf.file_name = NULL;
-    cf.dir = NULL;
-}
-
-static void
 changes_context_free(struct changes_context cf)
 {
-
     vec_for_each(cf.changed_files, changed_file_free);
     vec_free(cf.changed_files);
     cf.changed_files = NULL;
@@ -234,27 +220,33 @@ executor_stop_if_needed(struct executor_state *state, struct context *context)
     if (!state->thr)
         return false;
 
+    pthread_mutex_lock(state->lock);
+
     state->exiting = true;
 
-    if (state->run_pid)
-        process_kill(state->run_pid);
-    if (state->build_pid)
-        process_kill(state->build_pid);
+    vec_for_each2(struct command_state, command, state->commands)
+    {
+        process_kill(command->pid);
+    }
+
+    pthread_mutex_unlock(state->lock);
 
     pthread_join(state->thr, NULL);
+
+    vec_for_each2(struct command_state, command, state->commands)
+    {
+        vec_for_each(command->exec, free);
+        vec_free(command->exec);
+        free(command->name);
+
+        command->exec = NULL;
+        command->name = NULL;
+    }
+    vec_free(state->commands);
+    state->commands = NULL;
+
     state->exiting = false;
     state->thr = 0;
-
-    if (state->build_command)
-    {
-        free_build_command(state->build_command, context);
-        state->build_command = NULL;
-    }
-    if (state->run_command)
-    {
-        free_build_command(state->run_command, context);
-        state->run_command = NULL;
-    }
 
     return true;
 }
@@ -271,12 +263,12 @@ entrypoint(int argc, char **argv)
     signal(SIGHUP, graceful_stop_handler);
 
     struct context context = {};
-    struct config config = create_config(&context);
+    struct config config = config_create(&context);
 
     if (config.work_dir)
         chdir(config.work_dir);
 
-    struct watcher *watcher = watcher_create(config.watch_paths, &should_include_dir);
+    struct watcher *watcher = watcher_create(config.watch_paths, &should_include_dir, &should_include_file_change);
 
     watcher_start_watching(watcher);
 
@@ -301,13 +293,12 @@ entrypoint(int argc, char **argv)
         return 1;
     }
 
-    struct executor_state executor_state = { .lock = executor_lock,
-                                             .build_command = NULL,
-                                             .run_command = NULL,
-                                             .exiting = false,
-                                             .thr = 0,
-                                             .build_pid = 0,
-                                             .run_pid = 0 };
+    struct executor_state executor_state = {
+        .lock = executor_lock,
+        .commands = NULL,
+        .exiting = false,
+        .thr = 0,
+    };
 
     struct watcher_state watcher_state = {
         .watcher = watcher,
@@ -366,26 +357,9 @@ entrypoint(int argc, char **argv)
             pthread_mutex_unlock(watcher_state.lock);
             continue;
         }
-        pthread_mutex_unlock(watcher_state.lock);
 
-        executor_stop_if_needed(&executor_state, &context);
-
-        pthread_mutex_lock(watcher_state.lock);
-
-        struct changes_context changes_context = { .changed_files = vec_create(struct changed_file),
-                                                   .dir_structure_changed = watcher_state.dir_structure_changed,
-                                                   .is_first_run = is_first_run };
-
-        vec_for_each2(struct changed_file, cf, watcher_state.changed_files)
-        {
-            if (should_include_file_change(cf))
-                vec_push(changes_context.changed_files, *cf);
-            else
-                (changed_file_free(*cf));
-        }
-
-        bool should_rebuild = changes_context.dir_structure_changed || vec_length(changes_context.changed_files) ||
-                              changes_context.is_first_run;
+        bool should_rebuild = watcher_state.dir_structure_changed || vec_length(watcher_state.changed_files) ||
+                              is_first_run;
 
         watcher_state.dir_structure_changed = false;
         _vector_field_set(watcher_state.changed_files, LENGTH, 0);
@@ -393,16 +367,35 @@ entrypoint(int argc, char **argv)
         pthread_mutex_unlock(watcher_state.lock);
 
         if (!should_rebuild)
-        {
-            changes_context_free(changes_context);
             continue;
-        }
 
-        executor_state.build_command = get_build_command(&changes_context, &context);
-        executor_state.run_command = get_run_command(&changes_context, &context);
+        struct changes_context changes_context = { .changed_files = vec_dup(watcher_state.changed_files),
+                                                   .dir_structure_changed = watcher_state.dir_structure_changed,
+                                                   .is_first_run = is_first_run };
 
+        executor_stop_if_needed(&executor_state, &context);
+
+        struct command *commands = commands_create(&changes_context, &context);
         changes_context_free(changes_context);
 
+        struct command_state *command_states = vec_create_prealloc(struct command_state, vec_length(commands));
+        vec_for_each2(struct command, command, commands)
+        {
+            // + 1 is for NULL terminator
+            char **exec = vec_create_prealloc(char *, vec_length(command->exec) + 1);
+            vec_for_each2(char *, e, command->exec)
+            {
+                char *c = str_dup(*e);
+                vec_push(exec, c);
+            }
+            vec_push(exec, NULL);
+
+            struct command_state cs = { .name = str_dup(command->name), .exec = exec, .pid = 0 };
+            vec_push(command_states, cs);
+        }
+        commands_free(commands, &context);
+
+        executor_state.commands = command_states;
         pthread_t executor_thr;
         pthread_create(&executor_thr, NULL, executor, (void *)&executor_state);
         executor_state.thr = executor_thr;
@@ -416,6 +409,6 @@ entrypoint(int argc, char **argv)
     watcher_state_free(&watcher_state);
     executor_state_free(&executor_state);
 
-    free_config(&config);
+    config_free(&config);
     return 0;
 }

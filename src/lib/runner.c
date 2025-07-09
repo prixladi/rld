@@ -39,6 +39,9 @@ process_wait(pid_t pid)
 int
 process_kill(int pid)
 {
+    if (pid <= 0)
+        return -1;
+
     int attempt = 0;
     while (attempt < 700 && kill(pid, 0) == 0)
     {
