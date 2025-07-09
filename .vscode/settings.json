@@ -25,6 +25,8 @@
         "signal.h": "c",
         "log.h": "c",
         "time.h": "c",
-        "random": "c"
+        "random": "c",
+        "executor.h": "c",
+        "pthread.h": "c"
     }
 }

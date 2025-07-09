@@ -39,3 +39,21 @@ get_current_timestamp_in_ms()
 
     return (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
 }
+
+struct timespec
+get_current_timespec_plus_ms(time_t ms)
+{
+    struct timeval tp;
+    struct timespec ts;
+    int rc = gettimeofday(&tp, NULL);
+
+    ts.tv_sec = tp.tv_sec;
+    ts.tv_nsec = tp.tv_usec * 1000;
+
+    ts.tv_nsec += ms * 1000000;
+
+    ts.tv_sec += ts.tv_nsec / 1000000000L;
+    ts.tv_nsec = ts.tv_nsec % 1000000000L;
+
+    return ts;
+}

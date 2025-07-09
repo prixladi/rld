@@ -77,7 +77,7 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*shou
     if (pthread_mutex_init(lock, NULL) != 0)
     {
         free(lock);
-        log_critical("Unable to initialize watcher lock");
+        log_critical("(watcher) Unable to initialize watcher lock");
         return NULL;
     }
 
@@ -86,7 +86,7 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*shou
     {
         free(lock);
         free(cond);
-        log_critical("Unable to initialize watcher cond\n");
+        log_critical("(watcher) Unable to initialize watcher cond\n");
         return NULL;
     }
 
@@ -256,7 +256,7 @@ watcher_start_watching_thr(void *data)
 
             if (watcher->should_include_file_change && !watcher->should_include_file_change(event_dir, event->name))
             {
-                log_debug("(watcher) file '%s' in directory '%s' change ignored\n", event->name, event_dir);
+                log_debug("(watcher) File '%s' in directory '%s' change ignored\n", event->name, event_dir);
                 continue;
             }
 
@@ -306,7 +306,7 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
             char *dir = *dir_p;
             if (watcher->should_include_dir && !watcher->should_include_dir(dir))
             {
-                log_debug("(watcher) directory '%s' ignored\n", dir);
+                log_debug("(watcher) Directory '%s' ignored\n", dir);
                 free(dir);
                 continue;
             }
