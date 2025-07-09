@@ -12,31 +12,33 @@
     }
 int entrypoint(int argc, char **argv);
 
-struct Context
+struct changed_file
+{
+    char *file_name;
+    char *dir;
+
+    bool created;
+    bool deleted;
+    bool modified;
+};
+
+struct context
 {
 };
 
-struct Config
+struct config
 {
     char **watch_paths;
+    char *work_dir;
+    void *user_data;
 
     char **build_command;
-    char *build_command_workdir;
-
     char **run_command;
-    char *run_command_workdir;
-
-    void *user_data;
 };
 
-struct ChangedFile
-{
-    char *path;
-    uint32_t changes_mask;
-};
+struct config create_config(struct context *context);
+void free_config(struct config *context);
 
-struct Config init_config(struct Context *context);
-bool should_register_file_change(struct ChangedFile changed_file);
-void destroy_config(struct Config *context);
+bool should_include_dir(char *dir);
 
 #endif

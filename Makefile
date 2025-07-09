@@ -1,5 +1,5 @@
 CC=gcc
-FLAGS = -W -std=c99
+FLAGS = -W -std=c99 -D_POSIX_C_SOURCE=200112L
 SOURCES = src/*.c src/lib/*.c src/lib/utils/*.c 
 HEADERS = src/lib/*.h src/lib/utils/*.h 
 

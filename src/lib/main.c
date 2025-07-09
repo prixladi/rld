@@ -11,30 +11,155 @@
 
 #include "main.h"
 #include "watcher.h"
+#include "runner.h"
 
-bool
-should_include_dir(char *dir)
+struct state
 {
-    return str_starts_with(dir, "./run");
-}
+    struct config *config;
 
-void *
+    struct watcher *watcher;
+
+    pthread_mutex_t *lock;
+    pthread_cond_t *cond;
+    struct changed_file *changed_files;
+    bool dir_structure_changed;
+
+    pthread_t build_thr;
+    pid_t build_pid;
+    pid_t run_pid;
+    pthread_mutex_t *build_lock;
+    pthread_cond_t *build_cond;
+    bool build_exiting;
+};
+
+struct res
+{
+    int *status_code;
+};
+
+static void *
 read_loop_thr(void *data)
 {
-    struct watcher *watcher = data;
+    struct state *state = data;
 
     int res = 0;
     struct watcher_event_batch batch;
-    while ((res = watcher_read_event_batch(watcher, &batch)) == 0)
+    while ((res = watcher_read_event_batch(state->watcher, &batch)) == 0)
     {
-        printf("Batch - DIR CHANGED %d EVENT COUNT %d", batch.dir_structure_changed, vec_length(batch.file_events));
+        pthread_mutex_lock(state->lock);
+
         vec_for_each2(struct watcher_file_event, event, batch.file_events)
         {
-            printf(" %s ", event->file_name);
+            bool found = false;
+            vec_for_each2(struct changed_file, changed_file, state->changed_files)
+            {
+                if (strcmp(event->file_name, changed_file->file_name) == 0 && strcmp(event->dir, changed_file->dir) == 0)
+                {
+                    changed_file->created |= event->created || event->moved_to;
+                    changed_file->deleted |= event->deleted || event->moved_from;
+                    changed_file->modified |= event->modified;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                struct changed_file changed_file = { .created = event->created || event->moved_to,
+                                                     .deleted = event->deleted || event->moved_from,
+                                                     .modified = event->modified,
+                                                     .dir = str_dup(event->dir),
+                                                     .file_name = str_dup(event->file_name) };
+
+                vec_push(state->changed_files, changed_file);
+            }
         }
-        printf("\n");
+
+        state->dir_structure_changed |= batch.dir_structure_changed;
+
+        pthread_mutex_unlock(state->lock);
         watcher_clear_event_batch(batch);
+
+        // printf("Changed files : %d, dir str changed %d\n", vec_length(state->changed_files),
+        //        state->dir_structure_changed);
+        // vec_for_each2(struct changed_file, changed_file, state->changed_files)
+        // {
+        //     printf(" %s/%s %d %d %d\n", changed_file->dir, changed_file->file_name, changed_file->created,
+        //            changed_file->deleted, changed_file->modified);
+        // }
+
+        pthread_cond_broadcast(state->cond);
     }
+}
+
+static void *
+build_run_thr(void *data)
+{
+    struct state *state = data;
+
+    pthread_mutex_lock(state->build_lock);
+
+    if (state->build_exiting)
+    {
+        pthread_mutex_unlock(state->build_lock);
+        return NULL;
+    }
+    log_info("Starting build command\n");
+    pid_t pid = process_start(state->config->build_command);
+    state->build_pid = pid;
+
+    pthread_mutex_unlock(state->build_lock);
+
+    int status_code = process_wait(pid);
+
+    pthread_mutex_lock(state->build_lock);
+    state->build_pid = 0;
+
+    if (!state->build_exiting)
+    {
+        pthread_mutex_unlock(state->build_lock);
+
+        if (status_code == 0)
+        {
+            log_info("Build command completed successfully\n");
+
+            pthread_mutex_lock(state->build_lock);
+
+            log_info("Starting run command\n");
+            pid_t run_pid = process_start(state->config->run_command);
+
+            state->run_pid = run_pid;
+
+            pthread_mutex_unlock(state->build_lock);
+
+            int run_status_code = process_wait(run_pid);
+
+            pthread_mutex_lock(state->build_lock);
+
+            state->run_pid = 0;
+
+            if (state->run_pid == state->run_pid)
+            {
+                if (status_code == 0)
+                    log_info("Run command completed successfully\n");
+                else
+                    log_error("Run exited with error status code %d\n", status_code);
+            }
+            else
+                log_info("Run command interupted\n");
+
+            pthread_mutex_unlock(state->build_lock);
+        }
+        else
+            log_error("Build exited with error status code %d\n", status_code);
+    }
+    else
+    {
+        pthread_mutex_unlock(state->build_lock);
+        log_info("Build command interupted\n");
+    }
+
+    return NULL;
 }
 
 struct watcher *watcher_g = NULL;
@@ -49,44 +174,133 @@ graceful_stop_handler(int signal)
         watcher_signal_stop(watcher_g);
 }
 
+static void
+free_state(struct state *state)
+{
+    watcher_free(state->watcher);
+    vec_free(state->changed_files);
+
+    pthread_cond_destroy(state->cond);
+    free(state->cond);
+
+    pthread_mutex_destroy(state->lock);
+    free(state->lock);
+
+    watcher_g = NULL;
+    state->watcher = NULL;
+    state->changed_files = NULL;
+
+    state->lock = NULL;
+    state->cond = NULL;
+}
+
 int
 entrypoint(int argc, char **argv)
 {
-    log_init(DEBUG);
+    log_init(INFO);
 
-    signal(SIGCHLD, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
     signal(SIGTERM, graceful_stop_handler);
     signal(SIGINT, graceful_stop_handler);
     signal(SIGHUP, graceful_stop_handler);
 
-    struct Context context = {};
+    struct context context = {};
+    struct config config = create_config(&context);
 
-    struct Config config = init_config(&context);
+    if (config.work_dir)
+        chdir(config.work_dir);
 
-    printf("%d args %s\n", argc, config.build_command[0]);
-
-    destroy_config(&config);
-
-    vec_scoped char **root_dirs = vec_create_prealloc(char *, 2);
-    vec_push(root_dirs, "./run");
-    vec_push(root_dirs, "./run");
-
-    struct watcher *watcher = watcher_create(root_dirs, &should_include_dir);
+    struct watcher *watcher = watcher_create(config.watch_paths, &should_include_dir);
     watcher_g = watcher;
 
     watcher_start_watching(watcher);
 
-    pthread_t thr;
-    pthread_create(&thr, NULL, read_loop_thr, (void *)watcher);
+    pthread_mutex_t *lock = malloc(sizeof(pthread_mutex_t));
+    if (pthread_mutex_init(lock, NULL) != 0)
+    {
+        log_critical("Unable to initialize state lock");
+        return 1;
+    }
+
+    pthread_cond_t *cond = malloc(sizeof(pthread_cond_t));
+    if (pthread_cond_init(cond, NULL) != 0)
+    {
+        log_critical("Unable to initialize state cond\n");
+        return 1;
+    }
+
+    pthread_mutex_t *build_lock = malloc(sizeof(pthread_mutex_t));
+    if (pthread_mutex_init(build_lock, NULL) != 0)
+    {
+        log_critical("Unable to initialize state build lock");
+        return 1;
+    }
+
+    pthread_cond_t *build_cond = malloc(sizeof(pthread_cond_t));
+    if (pthread_cond_init(build_cond, NULL) != 0)
+    {
+        log_critical("Unable to initialize state build cond\n");
+        return 1;
+    }
+
+    struct state state = { .config = &config,
+                           .watcher = watcher,
+                           .changed_files = vec_create(struct changed_file),
+                           .lock = lock,
+                           .cond = cond,
+                           .build_lock = build_lock,
+                           .build_cond = build_cond };
+
+    pthread_t read_loot_thr;
+    pthread_create(&read_loot_thr, NULL, read_loop_thr, (void *)&state);
+
+    bool isFirst = true;
+    for (;;)
+    {
+        pthread_mutex_lock(state.lock);
+
+        if (!isFirst && !state.dir_structure_changed && vec_length(state.changed_files) == 0)
+        {
+            pthread_cond_wait(state.cond, state.lock);
+            pthread_mutex_unlock(state.lock);
+            continue;
+        }
+
+        isFirst = false;
+        if (state.build_thr)
+        {
+            state.build_exiting = true;
+
+            if (state.run_pid)
+                process_kill(state.run_pid);
+            if (state.build_pid)
+                process_kill(state.build_pid);
+
+            pthread_mutex_unlock(state.lock);
+
+            pthread_join(state.build_thr, NULL);
+            state.build_exiting = false;
+            state.build_thr = 0;
+
+            continue;
+        }
+
+        state.dir_structure_changed = false;
+        _vector_field_set(state.changed_files, LENGTH, 0);
+
+        pthread_mutex_unlock(state.lock);
+
+        pthread_t build_thr;
+        pthread_create(&build_thr, NULL, build_run_thr, (void *)&state);
+        state.build_thr = build_thr;
+    }
 
     watcher_join(watcher);
+    pthread_join(read_loot_thr, NULL);
 
-    pthread_join(thr, NULL);
+    free_state(&state);
 
-    watcher_g = NULL;
-    watcher_free(watcher);
-
+    free_config(&config);
     return 0;
 }

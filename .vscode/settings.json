@@ -18,6 +18,11 @@
         "typeinfo": "c",
         "map": "c",
         "format": "c",
-        "hashmap.h": "c"
+        "hashmap.h": "c",
+        "stdint.h": "c",
+        "mutex": "c",
+        "runner.h": "c",
+        "signal.h": "c",
+        "log.h": "c"
     }
 }

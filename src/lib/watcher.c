@@ -122,7 +122,7 @@ watcher_free(struct watcher *watcher)
 int
 watcher_start_watching(struct watcher *watcher)
 {
-    log_debug("(watcher) Starting\n");
+    log_info("(watcher) Starting\n");
 
     pthread_t thr;
     watcher->stoped = false;
@@ -135,7 +135,7 @@ watcher_start_watching(struct watcher *watcher)
 int
 watcher_signal_stop(struct watcher *watcher)
 {
-    log_debug("(watcher) Stopping\n");
+    log_info("(watcher) Stopping\n");
 
     watcher->stoped = true;
     pthread_cond_broadcast(watcher->cond);
@@ -264,6 +264,7 @@ watcher_start_watching_thr(void *data)
                 struct watcher_file_event file_event = { .dir = str_dup(event_dir),
                                                          .file_name = str_dup(event->name),
                                                          .created = event->mask & IN_CREATE,
+                                                         .deleted = event->mask & IN_DELETE,
                                                          .modified = event->mask & IN_CLOSE_WRITE,
                                                          .moved_from = event->mask & IN_MOVED_FROM,
                                                          .moved_to = event->mask & IN_MOVED_TO,

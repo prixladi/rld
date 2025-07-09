@@ -19,7 +19,7 @@ log_critical(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    scoped char *fmt = str_concat("[CRT] ", format);
+    scoped char *fmt = str_concat("\x1B[31m[CRT]\x1B[0m ", format);
     vfprintf(stderr, fmt, args);
 
     va_end(args);
@@ -34,7 +34,7 @@ log_error(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    scoped char *fmt = str_concat("[ERR] ", format);
+    scoped char *fmt = str_concat("\x1B[31m[ERR]\x1B[0m ", format);
     vfprintf(stderr, fmt, args);
 
     va_end(args);
@@ -49,7 +49,7 @@ log_warn(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    scoped char *fmt = str_concat("[WRN] ", format);
+    scoped char *fmt = str_concat("\x1B[33m[WRN]\x1B[0m ", format);
     vfprintf(stderr, fmt, args);
 
     va_end(args);
@@ -64,7 +64,7 @@ log_info(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    scoped char *fmt = str_concat("[INF] ", format);
+    scoped char *fmt = str_concat("\x1B[32m[INF]\x1B[0m ", format);
     vprintf(fmt, args);
 
     va_end(args);
@@ -79,7 +79,7 @@ log_debug(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    scoped char *fmt = str_concat("[DBG] ", format);
+    scoped char *fmt = str_concat("\x1B[37m[DBG]\x1B[0m ", format);
     vprintf(fmt, args);
 
     va_end(args);
@@ -94,7 +94,7 @@ log_trace(const char *trace_name, const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    scoped char *fmt = str_printf("[TRC] (%s) %s", trace_name, format);
+    scoped char *fmt = str_printf("\x1B[37m[TRC]\x1B[0m (%s) %s", trace_name, format);
     vprintf(fmt, args);
 
     va_end(args);

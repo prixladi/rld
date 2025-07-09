@@ -10,6 +10,7 @@ struct watcher_file_event
     time_t timestamp;
 
     bool created;
+    bool deleted;
     bool modified;
     bool moved_from;
     bool moved_to;
