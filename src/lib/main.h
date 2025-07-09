@@ -26,6 +26,13 @@ struct context
 {
 };
 
+struct changes_context
+{
+    struct changed_file *changed_files;
+    bool dir_structure_changed;
+    bool is_first_run;
+};
+
 struct config
 {
     char **watch_paths;
@@ -33,13 +40,16 @@ struct config
     int debounce_ms;
 
     void *user_data;
-
-    char **build_command;
-    char **run_command;
 };
 
 struct config create_config(struct context *context);
 void free_config(struct config *context);
+
+char **get_build_command(struct changes_context *changes_context, struct context *context);
+void free_build_command(char **command, struct context *context);
+
+char **get_run_command(struct changes_context *changes_context, struct context *context);
+void free_run_command(char **command, struct context *context);
 
 bool should_include_dir(char *dir);
 bool should_include_file_change(struct changed_file *cf);

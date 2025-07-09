@@ -32,6 +32,8 @@ _vec_dup(void *arr)
 void
 _vec_free(void *arr)
 {
+    if (arr == NULL)
+        return;
     free((size_t *)(arr)-VECTOR_FIELDS);
 }
 

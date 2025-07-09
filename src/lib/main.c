@@ -89,14 +89,6 @@ watcher_loop(void *data)
         pthread_mutex_unlock(state->lock);
         watcher_clear_event_batch(batch);
 
-        // printf("Changed files : %d, dir str changed %d\n", vec_length(state->changed_files),
-        //        state->dir_structure_changed);
-        // vec_for_each2(struct changed_file, changed_file, state->changed_files)
-        // {
-        //     printf(" %s/%s %d %d %d\n", changed_file->dir, changed_file->file_name, changed_file->created,
-        //            changed_file->deleted, changed_file->modified);
-        // }
-
         pthread_cond_broadcast(state->cond);
     }
 }
@@ -171,7 +163,8 @@ executor(void *data)
     return NULL;
 }
 
-struct watcher *watcher_g = NULL;
+struct watcher_state *watcher_state_g = NULL;
+bool exiting_g = false;
 
 static void
 graceful_stop_handler(int signal)
@@ -179,12 +172,17 @@ graceful_stop_handler(int signal)
     (void)signal;
     // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
     write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
-    if (watcher_g)
-        watcher_signal_stop(watcher_g);
+
+    exiting_g = true;
+    if (watcher_state_g)
+    {
+        watcher_signal_stop(watcher_state_g->watcher);
+        pthread_cond_broadcast(watcher_state_g->cond);
+    }
 }
 
 static void
-free_state(struct watcher_state *state)
+watcher_state_free(struct watcher_state *state)
 {
     watcher_free(state->watcher);
     vec_free(state->changed_files);
@@ -195,12 +193,38 @@ free_state(struct watcher_state *state)
     pthread_mutex_destroy(state->lock);
     free(state->lock);
 
-    watcher_g = NULL;
     state->watcher = NULL;
     state->changed_files = NULL;
 
     state->lock = NULL;
     state->cond = NULL;
+}
+
+static void
+executor_state_free(struct executor_state *state)
+{
+    pthread_mutex_destroy(state->lock);
+    free(state->lock);
+
+    state->lock = NULL;
+}
+
+static void
+changed_file_free(struct changed_file cf)
+{
+    free(cf.file_name);
+    free(cf.dir);
+
+    cf.file_name = NULL;
+    cf.dir = NULL;
+}
+
+static void
+changes_context_free(struct changes_context cf)
+{
+    vec_for_each(cf.changed_files, changed_file_free);
+    vec_free(cf.changed_files);
+    cf.changed_files = NULL;
 }
 
 int
@@ -221,7 +245,6 @@ entrypoint(int argc, char **argv)
         chdir(config.work_dir);
 
     struct watcher *watcher = watcher_create(config.watch_paths, &should_include_dir);
-    watcher_g = watcher;
 
     watcher_start_watching(watcher);
 
@@ -247,8 +270,8 @@ entrypoint(int argc, char **argv)
     }
 
     struct executor_state executor_state = { .lock = executor_lock,
-                                             .build_command = config.build_command,
-                                             .run_command = config.run_command,
+                                             .build_command = NULL,
+                                             .run_command = NULL,
                                              .exiting = false,
                                              .thr = 0,
                                              .build_pid = 0,
@@ -263,11 +286,13 @@ entrypoint(int argc, char **argv)
         .exiting = false,
     };
 
+    watcher_state_g = &watcher_state;
+
     pthread_t read_loop_thr;
     pthread_create(&read_loop_thr, NULL, watcher_loop, (void *)&watcher_state);
 
     bool is_first = true;
-    for (;;)
+    for (; !exiting_g;)
     {
         bool is_first_run = is_first;
         is_first = false;
@@ -325,21 +350,34 @@ entrypoint(int argc, char **argv)
             executor_state.exiting = false;
             executor_state.thr = 0;
 
+            if (executor_state.build_command)
+            {
+                free_build_command(executor_state.build_command, &context);
+                executor_state.build_command = NULL;
+            }
+            if (executor_state.run_command)
+            {
+                free_build_command(executor_state.run_command, &context);
+                executor_state.run_command = NULL;
+            }
+
             continue;
         }
 
-        bool should_rebuild = watcher_state.dir_structure_changed || is_first_run;
-        if (!should_rebuild)
+        struct changes_context changes_context = { .changed_files = vec_create(struct changed_file *),
+                                                   .dir_structure_changed = watcher_state.dir_structure_changed,
+                                                   .is_first_run = is_first_run };
+
+        vec_for_each2(struct changed_file, cf, watcher_state.changed_files)
         {
-            vec_for_each2(struct changed_file, cf, watcher_state.changed_files)
-            {
-                if (should_include_file_change(cf))
-                {
-                    should_rebuild = true;
-                    break;
-                }
-            }
+            if (should_include_file_change(cf))
+                vec_push(changes_context.changed_files, *cf);
+            else
+                (changed_file_free(*cf));
         }
+
+        bool should_rebuild = changes_context.dir_structure_changed || vec_length(changes_context.changed_files) ||
+                              changes_context.is_first_run;
 
         watcher_state.dir_structure_changed = false;
         _vector_field_set(watcher_state.changed_files, LENGTH, 0);
@@ -347,17 +385,53 @@ entrypoint(int argc, char **argv)
         pthread_mutex_unlock(watcher_state.lock);
 
         if (!should_rebuild)
+        {
+            changes_context_free(changes_context);
             continue;
+        }
+
+        executor_state.build_command = get_build_command(&changes_context, &context);
+        executor_state.run_command = get_run_command(&changes_context, &context);
+
+        changes_context_free(changes_context);
 
         pthread_t executor_thr;
         pthread_create(&executor_thr, NULL, executor, (void *)&executor_state);
         executor_state.thr = executor_thr;
     }
 
+    if (executor_state.thr)
+    {
+        executor_state.exiting = true;
+
+        if (executor_state.run_pid)
+            process_kill(executor_state.run_pid);
+        if (executor_state.build_pid)
+            process_kill(executor_state.build_pid);
+
+        pthread_mutex_unlock(watcher_state.lock);
+
+        pthread_join(executor_state.thr, NULL);
+        executor_state.exiting = false;
+        executor_state.thr = 0;
+
+        if (executor_state.build_command)
+        {
+            free_build_command(executor_state.build_command, &context);
+            executor_state.build_command = NULL;
+        }
+        if (executor_state.run_command)
+        {
+            free_build_command(executor_state.run_command, &context);
+            executor_state.run_command = NULL;
+        }
+    }
+
     watcher_join(watcher);
     pthread_join(read_loop_thr, NULL);
 
-    free_state(&watcher_state);
+    watcher_state_free(&watcher_state);
+    executor_state_free(&executor_state);
 
     free_config(&config);
     return 0;

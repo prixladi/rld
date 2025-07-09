@@ -10,34 +10,52 @@ __MAIN
 struct config
 create_config(struct context *context)
 {
-    struct config config = { .watch_paths = vec_create_prealloc(char *, 2),
-                             .build_command = vec_create_prealloc(char *, 3),
-                             .run_command = vec_create_prealloc(char *, 3),
-                             .debounce_ms = 500 };
+    struct config config = {
+        .watch_paths = vec_create_prealloc(char *, 2), .debounce_ms = 500, .work_dir = NULL, .user_data = NULL
+    };
 
     vec_push(config.watch_paths, "./run");
     vec_push(config.watch_paths, "./run2");
 
-    // vec_push(config.build_command, "sleep");
-    // vec_push(config.build_command, "4");
-    // vec_push(config.build_command, NULL);
-
-    // vec_push(config.run_command, "bash");
-    // vec_push(config.run_command, "-c");
-    // vec_push(config.run_command, "echo ahahahah && sleep 4 && echo AHAHAHAH");
-    // vec_push(config.run_command, NULL);
-
-    vec_push(config.build_command, "gcc");
-    vec_push(config.build_command, "./run/main.c");
-    vec_push(config.build_command, "-o");
-    vec_push(config.build_command, "./run/run.out");
-    vec_push(config.build_command, NULL);
-
-    vec_push(config.run_command, "./run/run.out");
-    vec_push(config.run_command, "reload");
-    vec_push(config.run_command, NULL);
-
     return config;
+}
+
+char **
+get_build_command(struct changes_context *changes_context, struct context *context)
+{
+    char **command = vec_create_prealloc(char *, 5);
+
+    vec_push(command, "gcc");
+    vec_push(command, "./run/main.c");
+    vec_push(command, "-o");
+    vec_push(command, "./run/run.out");
+    vec_push(command, NULL);
+
+    return command;
+}
+
+void
+free_build_command(char **command, struct context *context)
+{
+    vec_free(command);
+}
+
+char **
+get_run_command(struct changes_context *changes_context, struct context *context)
+{
+    char **command = vec_create_prealloc(char *, 5);
+
+    vec_push(command, "./run/run.out");
+    vec_push(command, "reload");
+    vec_push(command, NULL);
+
+    return command;
+}
+
+void
+free_run_command(char **command, struct context *context)
+{
+    vec_free(command);
 }
 
 bool
@@ -56,10 +74,5 @@ void
 free_config(struct config *config)
 {
     vec_free(config->watch_paths);
-    vec_free(config->build_command);
-    vec_free(config->run_command);
-
     config->watch_paths = NULL;
-    config->build_command = NULL;
-    config->run_command = NULL;
 }
