@@ -1,22 +1,23 @@
 #include <pthread.h>
 #include <time.h>
+#include <unistd.h>
+
 #include <sys/time.h>
 
 #include "time.h"
 
-#define ms_to_ns(x) x * 1000 * 1000
-#define us_to_ns(x) x * 1000
+#define ms_to_us(x) x * 1000
 
 void
 sleep_ms(int ms)
 {
-    sleep_ns(ms_to_ns(ms));
+    sleep_us(ms_to_us(ms));
 }
 
 void
 sleep_us(int us)
 {
-    sleep_ns(us_to_ns(us));
+    usleep(us);
 }
 
 void

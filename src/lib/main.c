@@ -245,27 +245,26 @@ entrypoint(int argc, char **argv)
         pthread_mutex_lock(reader.lock);
 
         bool no_change = !reader.dir_structure_changed && vec_length(reader.changed_files) == 0;
-
         time_t current_ms = get_current_timestamp_in_ms();
-
         bool should_debounce = reader.last_change_timestamp && config.debounce_ms &&
                                ((reader.last_change_timestamp + config.debounce_ms) > current_ms);
 
-        if (!is_first_run && (no_change || should_debounce))
+        if (!is_first_run)
         {
             if (no_change)
             {
                 pthread_cond_wait(reader.cond, reader.lock);
+                pthread_mutex_unlock(reader.lock);
+                continue;
             }
-            else
+            else if (should_debounce)
             {
                 time_t debounce_diff = current_ms - reader.last_change_timestamp + config.debounce_ms;
-                struct timespec ts = get_current_timespec_plus_ms(debounce_diff);
-                pthread_cond_timedwait(reader.cond, reader.lock, &ts);
+                pthread_mutex_unlock(reader.lock);
+                // there is no need to even cond_wait because each subsequent change will only increase timestamp
+                sleep_ms(debounce_diff);
+                continue;
             }
-
-            pthread_mutex_unlock(reader.lock);
-            continue;
         }
 
         bool should_rebuild = reader.dir_structure_changed || vec_length(reader.changed_files) || is_first_run;
