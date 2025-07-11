@@ -48,13 +48,14 @@ struct watcher
 static void init_and_add_watched_dirs(struct watcher *watcher, int fd);
 static void *watcher_start_watching_thr(void *data);
 
-static void free_watched_dir(void *item);
-static void free_pointer_to_string(void *item);
+static void watched_dir_free(void *item);
+static void pointer_to_string_free(void *item);
 
 static int str_compare(const void *a, const void *b, void *udata);
 static uint64_t str_hash(const void *item, uint64_t seed0, uint64_t seed1);
 static int watched_dir_compare(const void *a, const void *b, void *udata);
 static uint64_t watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1);
+
 static char **get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *));
 
 struct watcher *
@@ -71,7 +72,7 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*shou
     watcher->should_include_file_change = should_include_file_change;
 
     watcher->watched_dirs =
-        hashmap_new(sizeof(struct watched_dir), 0, 0, 0, str_hash, str_compare, &free_watched_dir, NULL);
+        hashmap_new(sizeof(struct watched_dir), 0, 0, 0, str_hash, str_compare, watched_dir_free, NULL);
 
     watcher->event_batch.dir_structure_changed = false;
     watcher->event_batch.file_events = vec_create(struct watcher_file_event);
@@ -107,7 +108,7 @@ watcher_free(struct watcher *watcher)
 
     hashmap_free(watcher->watched_dirs);
 
-    watcher_clear_event_batch(&watcher->event_batch);
+    watcher_free_event_batch(watcher->event_batch);
 
     pthread_cond_destroy(watcher->cond);
     free(watcher->cond);
@@ -156,7 +157,7 @@ watcher_signal_stop(struct watcher *watcher)
 }
 
 int
-watcher_wait_stop(struct watcher *watcher)
+watcher_wait_for_stop(struct watcher *watcher)
 {
     if (watcher->thr <= 0)
         return 1;
@@ -209,9 +210,9 @@ watcher_read_event_batch(struct watcher *watcher, int debounce_ms, struct watche
 }
 
 int
-watcher_clear_event_batch(struct watcher_event_batch *batch)
+watcher_free_event_batch(struct watcher_event_batch batch)
 {
-    vec_for_each2(struct watcher_file_event, event, batch->file_events)
+    vec_for_each2(struct watcher_file_event, event, batch.file_events)
     {
         free(event->file_name);
         free(event->dir);
@@ -220,11 +221,11 @@ watcher_clear_event_batch(struct watcher_event_batch *batch)
         event->dir = NULL;
     }
 
-    vec_free(batch->file_events);
+    vec_free(batch.file_events);
 
-    batch->file_events = NULL;
-    batch->dir_structure_changed = false;
-    batch->latest_change_timestamp = 0;
+    batch.file_events = NULL;
+    batch.dir_structure_changed = false;
+    batch.latest_change_timestamp = 0;
 }
 
 static void *
@@ -348,7 +349,7 @@ static void
 init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
 {
     struct hashmap *scanned_dirs_map =
-        hashmap_new(sizeof(char *), 0, 0, 0, str_hash, str_compare, &free_pointer_to_string, NULL);
+        hashmap_new(sizeof(char *), 0, 0, 0, str_hash, str_compare, pointer_to_string_free, NULL);
     vec_for_each2(char *, r_dir, watcher->root_dirs)
     {
         vec_scoped char **dirs = get_directories_recursive(*r_dir, watcher->should_include_dir);
@@ -376,7 +377,7 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
         hashmap_delete(watcher->watched_dirs, &w_dir_cp);
 
         inotify_rm_watch(w_dir->notify_fd, w_dir_cp.wd);
-        free_watched_dir((void *)&w_dir_cp);
+        watched_dir_free((void *)&w_dir_cp);
     }
 
     size_t iter_sd = 0;
@@ -403,14 +404,14 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
 }
 
 static void
-free_watched_dir(void *item)
+watched_dir_free(void *item)
 {
     struct watched_dir *w_dir = item;
     free(w_dir->dir);
 }
 
 static void
-free_pointer_to_string(void *item)
+pointer_to_string_free(void *item)
 {
     char **str = item;
     free(*str);

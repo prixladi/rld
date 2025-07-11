@@ -9,6 +9,7 @@ struct executor_command
 {
     char *name;
     char **exec;
+    char *work_dir;
     pid_t pid;
 };
 

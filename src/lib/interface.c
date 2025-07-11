@@ -21,7 +21,7 @@ static void changed_file_free(struct changed_file cf);
 static void changes_context_free(struct changes_context cf);
 
 struct watcher *watcher_g = NULL;
-bool exiting_g = false;
+bool stopping_g = false;
 
 int
 entrypoint(int argc, char **argv)
@@ -46,21 +46,25 @@ entrypoint(int argc, char **argv)
         log_critical("Unable to initialize watcher.\n");
         return 1;
     }
-    if (watcher_start(watcher) != 0)
-    {
-        log_critical("Unable to start watcher.\n");
-        return 2;
-    }
     watcher_g = watcher;
 
     struct executor *executor = executor_create();
     if (!executor)
     {
+        watcher_free(watcher);
         log_critical("Unable to initialize executor.\n");
-        return 5;
+        return 2;
     }
 
-    for (bool is_first_run = true; !exiting_g; is_first_run = false)
+    if (watcher_start(watcher) != 0)
+    {
+        watcher_free(watcher);
+        executor_free(executor);
+        log_critical("Unable to start watcher.\n");
+        return 3;
+    }
+
+    for (bool is_first_run = true; !stopping_g; is_first_run = false)
     {
         struct changes_context changes_context = { .changed_files = vec_create(struct changed_file),
                                                    .dir_structure_changed = false,
@@ -83,7 +87,7 @@ entrypoint(int argc, char **argv)
                 struct changed_file cf = { .dir = str_dup(f->dir), .file_name = str_dup(f->file_name) };
                 vec_push(changes_context.changed_files, cf);
             }
-            watcher_clear_event_batch(&batch);
+            watcher_free_event_batch(batch);
         }
 
         executor_stop_commands_and_wait(executor);
@@ -103,7 +107,9 @@ entrypoint(int argc, char **argv)
             }
             vec_push(exec, NULL);
 
-            struct executor_command ec = { .name = str_dup(command->name), .exec = exec, .pid = 0 };
+            struct executor_command ec = {
+                .name = str_dup(command->name), .exec = exec, .work_dir = str_dup(command->work_dir), .pid = 0
+            };
             vec_push(executor_commands, ec);
         }
         commands_free(commands, &context);
@@ -111,16 +117,16 @@ entrypoint(int argc, char **argv)
         executor_run_commands(executor, executor_commands);
     }
 
-    if (!exiting_g)
-        log_critical("Broken out of the main application loop without global exiting flag set to true");
+    if (!stopping_g)
+        log_critical("Broken out of the main application loop without global stopping flag set to true");
 
-    watcher_wait_stop(watcher);
+    watcher_wait_for_stop(watcher);
     watcher_free(watcher);
 
     executor_stop_commands_and_wait(executor);
     executor_free(executor);
 
-    config_free(&config);
+    config_free(config, &context);
     return 0;
 }
 
@@ -131,7 +137,7 @@ graceful_stop_handler(int signal)
     // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
     write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
 
-    exiting_g = true;
+    stopping_g = true;
     if (watcher_g)
         watcher_signal_stop(watcher_g);
 }

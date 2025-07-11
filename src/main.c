@@ -26,19 +26,19 @@ commands_create(struct changes_context *changes_context, struct context *context
     char **build_exec = vec_create_prealloc(char *, 4);
 
     vec_push(build_exec, "gcc");
-    vec_push(build_exec, "./run/main.c");
+    vec_push(build_exec, "./main.c");
     vec_push(build_exec, "-o");
-    vec_push(build_exec, "./run/run.out");
+    vec_push(build_exec, "./run.out");
 
     char **run_exec = vec_create_prealloc(char *, 2);
 
-    vec_push(run_exec, "./run/run.out");
+    vec_push(run_exec, "./run.out");
     vec_push(run_exec, "reload");
 
     struct command *commands = vec_create_prealloc(struct command, 5);
 
-    struct command build_command = { .name = "build", .exec = build_exec };
-    struct command run_command = { .name = "execute", .exec = run_exec };
+    struct command build_command = { .name = "build", .exec = build_exec, .work_dir = "./run" };
+    struct command run_command = { .name = "execute", .exec = run_exec, .work_dir = "./run" };
 
     vec_push(commands, build_command);
     vec_push(commands, run_command);
@@ -71,8 +71,8 @@ should_include_file_change(char *dir, char *file_name)
 }
 
 void
-config_free(struct config *config)
+config_free(struct config config, struct context *context)
 {
-    vec_free(config->watch_paths);
-    config->watch_paths = NULL;
+    vec_free(config.watch_paths);
+    config.watch_paths = NULL;
 }

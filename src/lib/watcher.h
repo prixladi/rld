@@ -26,10 +26,10 @@ struct watcher *watcher_create(char **root_dirs, bool (*should_include_dir)(char
 int watcher_start(struct watcher *watcher);
 
 int watcher_signal_stop(struct watcher *watcher);
-int watcher_wait_stop(struct watcher *watcher);
+int watcher_wait_for_stop(struct watcher *watcher);
 int watcher_free(struct watcher *watcher);
 
 int watcher_read_event_batch(struct watcher *watcher, int debounce_ms, struct watcher_event_batch *batch);
-int watcher_clear_event_batch(struct watcher_event_batch *batch);
+int watcher_free_event_batch(struct watcher_event_batch batch);
 
 #endif

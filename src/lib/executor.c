@@ -17,13 +17,13 @@ struct executor
     struct executor_command *commands;
 
     pthread_t thr;
-    bool exiting;
+    bool stopping;
 
     pthread_mutex_t *lock;
 };
 
 static void *execute(void *data);
-static int process_start(char **command);
+static int process_start(char **command, char *work_dir);
 static int process_wait(pid_t pid);
 static int process_kill(int pid);
 
@@ -67,11 +67,12 @@ executor_stop_commands_and_wait(struct executor *executor)
 
     pthread_mutex_lock(executor->lock);
 
-    executor->exiting = true;
+    executor->stopping = true;
 
     vec_for_each2(struct executor_command, command, executor->commands)
     {
-        process_kill(command->pid);
+        if (command->pid)
+            process_kill(command->pid);
     }
 
     pthread_mutex_unlock(executor->lock);
@@ -83,14 +84,16 @@ executor_stop_commands_and_wait(struct executor *executor)
         vec_for_each(command->exec, free);
         vec_free(command->exec);
         free(command->name);
+        free(command->work_dir);
 
         command->exec = NULL;
         command->name = NULL;
+        command->work_dir = NULL;
     }
     vec_free(executor->commands);
     executor->commands = NULL;
 
-    executor->exiting = false;
+    executor->stopping = false;
     executor->thr = 0;
 
     return 0;
@@ -124,7 +127,7 @@ execute(void *data)
     {
         struct executor_command *command = &executor->commands[i];
 
-        if (executor->exiting)
+        if (executor->stopping)
         {
             pthread_mutex_unlock(executor->lock);
             return NULL;
@@ -133,7 +136,7 @@ execute(void *data)
         scoped char *command_desc = str_printf("%s (%d/%d)", command->name, i + 1, vec_length(executor->commands));
 
         log_info("(executor) Starting command: '%s'\n", command_desc);
-        pid_t pid = process_start(command->exec);
+        pid_t pid = process_start(command->exec, command->work_dir);
         command->pid = pid;
 
         pthread_mutex_unlock(executor->lock);
@@ -143,7 +146,7 @@ execute(void *data)
         pthread_mutex_lock(executor->lock);
         command->pid = 0;
 
-        if (executor->exiting)
+        if (executor->stopping)
         {
             pthread_mutex_unlock(executor->lock);
             log_info("(executor) Command '%s' interupted\n", command_desc);
@@ -166,7 +169,7 @@ execute(void *data)
 }
 
 static int
-process_start(char **command)
+process_start(char **command, char *work_dir)
 {
     pid_t pid = fork();
     if (pid == 0)
@@ -175,6 +178,8 @@ process_start(char **command)
 
         log_debug("Starting process '%s - %d'\n", command[0], current_pid);
 
+        if (work_dir)
+            chdir(work_dir);
         execvp(command[0], command);
 
         log_critical("Unable to execute command '%s' with pid %d, aborting\n", command[0], current_pid);
