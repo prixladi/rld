@@ -29,6 +29,10 @@
         "executor.h": "c",
         "pthread.h": "c",
         "interface.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "array": "c",
+        "string": "c",
+        "string_view": "c",
+        "span": "c"
     }
 }

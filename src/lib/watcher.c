@@ -13,6 +13,7 @@
 #include "utils/log.h"
 #include "utils/hashmap.h"
 #include "utils/fs.h"
+#include "utils/time.h"
 
 #include "watcher.h"
 
@@ -169,26 +170,42 @@ watcher_join(struct watcher *watcher)
 }
 
 int
-watcher_read_event_batch(struct watcher *watcher, struct watcher_event_batch *batch)
+watcher_read_event_batch(struct watcher *watcher, int debounce_ms, struct watcher_event_batch *batch)
 {
     pthread_mutex_lock(watcher->lock);
     for (; !watcher->stoped;)
     {
         bool batch_is_empty = !watcher->event_batch.dir_structure_changed &&
                               !vec_length(watcher->event_batch.file_events);
-        if (!batch_is_empty)
+
+        time_t current_ms = get_current_timestamp_in_ms();
+        bool should_debounce = watcher->event_batch.latest_change_timestamp && debounce_ms &&
+                               ((watcher->event_batch.latest_change_timestamp + debounce_ms) > current_ms);
+
+        if (batch_is_empty)
         {
-            memcpy(batch, &watcher->event_batch, sizeof(struct watcher_event_batch));
-            watcher->event_batch.dir_structure_changed = false;
-            watcher->event_batch.file_events = vec_create(struct watcher_file_event);
+            pthread_cond_wait(watcher->cond, watcher->lock);
             pthread_mutex_unlock(watcher->lock);
-            break;
+            continue;
+        }
+        else if (should_debounce)
+        {
+            time_t debounce_diff = current_ms - watcher->event_batch.latest_change_timestamp + debounce_ms;
+            pthread_mutex_unlock(watcher->lock);
+            // there is no need to even cond_wait because each subsequent change will only increase timestamp
+            sleep_ms(debounce_diff);
+            continue;
         }
 
-        pthread_cond_wait(watcher->cond, watcher->lock);
+        memcpy(batch, &watcher->event_batch, sizeof(struct watcher_event_batch));
+        watcher->event_batch.dir_structure_changed = false;
+        watcher->event_batch.file_events = vec_create(struct watcher_file_event);
+        watcher->event_batch.latest_change_timestamp = 0;
+        pthread_mutex_unlock(watcher->lock);
+        return 0;
     }
 
-    return watcher->stoped ? -1 : 0;
+    return -1;
 }
 
 int
@@ -207,6 +224,7 @@ watcher_clear_event_batch(struct watcher_event_batch *batch)
 
     batch->file_events = NULL;
     batch->dir_structure_changed = false;
+    batch->latest_change_timestamp = 0;
 }
 
 static void *
@@ -234,8 +252,7 @@ watcher_start_watching_thr(void *data)
         int length = read(notify_fd, buffer, BUF_LEN);
 
         bool dir_action = false;
-        vec_scoped struct watcher_file_event *file_events = vec_create(struct watcher_file_event);
-
+        bool file_action = false;
         for (int i = 0; i < length;)
         {
             struct inotify_event *event = (struct inotify_event *)&buffer[i];
@@ -268,17 +285,41 @@ watcher_start_watching_thr(void *data)
                 continue;
             }
 
-            struct watcher_file_event file_event = { 0 };
-            file_event.dir = str_dup(event_dir);
-            file_event.file_name = str_dup(event->name);
-            file_event.created = event->mask & IN_CREATE;
-            file_event.deleted = event->mask & IN_DELETE;
-            file_event.modified = event->mask & IN_CLOSE_WRITE;
-            file_event.moved_from = event->mask & IN_MOVED_FROM;
-            file_event.moved_to = event->mask & IN_MOVED_TO;
-            file_event.timestamp = time(NULL);
+            file_action = true;
 
-            vec_push(file_events, file_event);
+            bool created = event->mask & (IN_CREATE | IN_MOVED_TO);
+            bool deleted = event->mask & (IN_DELETE | IN_MOVED_FROM);
+            bool modified = event->mask & IN_CLOSE_WRITE;
+            bool timestamp = get_current_timestamp_in_ms();
+
+            pthread_mutex_lock(watcher->lock);
+
+            bool found = false;
+            vec_for_each2(struct watcher_file_event, fe, watcher->event_batch.file_events)
+            {
+                if (strcmp(fe->file_name, event->name) == 0 && strcmp(fe->dir, event_dir) == 0)
+                {
+                    fe->created |= created;
+                    fe->deleted |= deleted;
+                    fe->modified |= modified;
+                    fe->timestamp = timestamp;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                struct watcher_file_event file_event = { .dir = str_dup(event_dir),
+                                                         .file_name = str_dup(event->name),
+                                                         .created = created,
+                                                         .deleted = deleted,
+                                                         .modified = modified,
+                                                         .timestamp = timestamp };
+                vec_push(watcher->event_batch.file_events, file_event);
+            }
+
+            pthread_mutex_unlock(watcher->lock);
         }
 
         if (dir_action)
@@ -286,13 +327,15 @@ watcher_start_watching_thr(void *data)
 
         pthread_mutex_lock(watcher->lock);
 
-        if (dir_action)
-            watcher->event_batch.dir_structure_changed = true;
-        if (vec_length(file_events))
-            vec_push_many(watcher->event_batch.file_events, file_events);
+        watcher->event_batch.dir_structure_changed |= dir_action;
+
+        if (dir_action || file_action)
+            watcher->event_batch.latest_change_timestamp = get_current_timestamp_in_ms();
 
         pthread_mutex_unlock(watcher->lock);
-        pthread_cond_broadcast(watcher->cond);
+
+        if (dir_action || file_action)
+            pthread_cond_broadcast(watcher->cond);
     }
 
     hashmap_clear(watcher->watched_dirs, 0);

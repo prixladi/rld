@@ -15,45 +15,18 @@
 #include "interface.h"
 #include "watcher.h"
 #include "executor.h"
-#include "reader.h"
 
-static void
-changed_file_free(struct changed_file cf)
-{
-    free(cf.file_name);
-    free(cf.dir);
+static void graceful_stop_handler(int signal);
+static void changed_file_free(struct changed_file cf);
+static void changes_context_free(struct changes_context cf);
 
-    cf.file_name = NULL;
-    cf.dir = NULL;
-}
-
-static void
-changes_context_free(struct changes_context cf)
-{
-    vec_for_each(cf.changed_files, changed_file_free);
-    vec_free(cf.changed_files);
-    cf.changed_files = NULL;
-}
-
-struct reader *reader_g = NULL;
+struct watcher *watcher_g = NULL;
 bool exiting_g = false;
-
-static void
-graceful_stop_handler(int signal)
-{
-    (void)signal;
-    // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
-    write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
-
-    exiting_g = true;
-    if (reader_g)
-        reader_signal_stop(reader_g);
-}
 
 int
 entrypoint(int argc, char **argv)
 {
-    log_init(DEBUG);
+    log_init(INFO);
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -78,19 +51,7 @@ entrypoint(int argc, char **argv)
         log_critical("Unable to start watcher.\n");
         return 2;
     }
-
-    struct reader *reader = reader_create();
-    if (!reader)
-    {
-        log_critical("Unable to create reader.\n");
-        return 3;
-    }
-    if (reader_start(reader, watcher, &should_include_dir, &should_include_file_change) != 0)
-    {
-        log_critical("Unable to start reader.\n");
-        return 4;
-    }
-    reader_g = reader;
+    watcher_g = watcher;
 
     struct executor *executor = executor_create();
     if (!executor)
@@ -107,21 +68,22 @@ entrypoint(int argc, char **argv)
 
         if (!is_first_run)
         {
-            struct reader_changes_context *data = reader_wait_for_data_with_debounce(reader, config.debounce_ms);
-            // Reader stopped that means that whole app should stop
-            if (!data)
+            struct watcher_event_batch batch = { 0 };
+            int result = watcher_read_event_batch(watcher, config.debounce_ms, &batch);
+            // watcher stopped that means that whole app should stop
+            if (result != 0)
             {
                 changes_context_free(changes_context);
                 break;
             }
 
-            changes_context.dir_structure_changed |= data->dir_structure_changed;
-            vec_for_each2(struct reader_changed_file, f, data->changed_files)
+            changes_context.dir_structure_changed |= batch.dir_structure_changed;
+            vec_for_each2(struct watcher_file_event, f, batch.file_events)
             {
                 struct changed_file cf = { .dir = str_dup(f->dir), .file_name = str_dup(f->file_name) };
                 vec_push(changes_context.changed_files, cf);
             }
-            reader_changes_context_free(data);
+            watcher_clear_event_batch(&batch);
         }
 
         executor_stop_join_clear(executor);
@@ -152,12 +114,42 @@ entrypoint(int argc, char **argv)
     if (!exiting_g)
         log_critical("Broken out of the main application loop without global exiting flag set to true");
 
-    reader_join(reader);
-    reader_free(reader);
+    watcher_join(watcher);
+    watcher_free(watcher);
 
     executor_stop_join_clear(executor);
     executor_free(executor);
 
     config_free(&config);
     return 0;
+}
+
+static void
+graceful_stop_handler(int signal)
+{
+    (void)signal;
+    // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
+    write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
+
+    exiting_g = true;
+    if (watcher_g)
+        watcher_signal_stop(watcher_g);
+}
+
+static void
+changed_file_free(struct changed_file cf)
+{
+    free(cf.file_name);
+    free(cf.dir);
+
+    cf.file_name = NULL;
+    cf.dir = NULL;
+}
+
+static void
+changes_context_free(struct changes_context cf)
+{
+    vec_for_each(cf.changed_files, changed_file_free);
+    vec_free(cf.changed_files);
+    cf.changed_files = NULL;
 }
