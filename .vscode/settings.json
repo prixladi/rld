@@ -27,6 +27,8 @@
         "time.h": "c",
         "random": "c",
         "executor.h": "c",
-        "pthread.h": "c"
+        "pthread.h": "c",
+        "interface.h": "c",
+        "stdbool.h": "c"
     }
 }

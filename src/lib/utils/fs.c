@@ -8,8 +8,6 @@
 #include "vector.h"
 #include "fs.h"
 
-#define DT_DIR 4
-
 bool
 dir_exists(const char *path)
 {
@@ -55,45 +53,4 @@ paths_join(const char *p1, const char *p2)
         return str_concat(p1, p2);
 
     return str_printf("%s/%s", p1, p2);
-}
-
-char **
-get_directories_recursive(const char *root_dir)
-{
-    char **dirs = vec_create_prealloc(char *, 8);
-
-    vec_scoped char **stack = vec_create_prealloc(char *, 8);
-    vec_push(stack, str_dup(root_dir));
-
-    while (vec_length(stack))
-    {
-        char *current_dir = NULL;
-        vec_pop(stack, &current_dir);
-
-        DIR *dir = opendir(current_dir);
-        if (dir == NULL)
-        {
-            free(current_dir);
-            continue;
-        }
-
-        vec_push(dirs, current_dir);
-
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL)
-        {
-            if (strncmp(entry->d_name, ".", 1) == 0 || strncmp(entry->d_name, "..", 2) == 0)
-                continue;
-
-            if (entry->d_type != DT_DIR)
-                continue;
-            char *dir_path = paths_join(current_dir, entry->d_name);
-
-            vec_push(stack, dir_path);
-        }
-
-        closedir(dir);
-    };
-
-    return dirs;
 }

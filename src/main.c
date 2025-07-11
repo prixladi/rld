@@ -1,6 +1,6 @@
 #include <stdlib.h>
 
-#include "lib/main.h"
+#include "lib/interface.h"
 
 #include "lib/utils/string.h"
 #include "lib/utils/vector.h"

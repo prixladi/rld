@@ -1,5 +1,5 @@
-#ifndef MAIN__H
-#define MAIN__H
+#ifndef INTERFACE__H
+#define INTERFACE__H
 
 #include <stdio.h>
 #include <stdbool.h>

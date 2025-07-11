@@ -1,17 +1,18 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <dirent.h>
 
 #include <sys/types.h>
 #include <sys/inotify.h>
 #include <sys/select.h>
 
-#include "utils/fs.h"
 #include "utils/vector.h"
 #include "utils/memory.h"
 #include "utils/string.h"
 #include "utils/log.h"
 #include "utils/hashmap.h"
+#include "utils/fs.h"
 
 #include "watcher.h"
 
@@ -34,7 +35,7 @@ struct watcher
     bool (*should_include_dir)(char *);
     bool (*should_include_file_change)(char *, char *);
 
-    pthread_t watching_thr;
+    pthread_t thr;
     bool stoped;
 
     struct hashmap *watched_dirs;
@@ -53,6 +54,7 @@ static int str_compare(const void *a, const void *b, void *udata);
 static uint64_t str_hash(const void *item, uint64_t seed0, uint64_t seed1);
 static int watched_dir_compare(const void *a, const void *b, void *udata);
 static uint64_t watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1);
+static char **get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *));
 
 struct watcher *
 watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*should_include_file_change)(char *, char *))
@@ -125,14 +127,20 @@ watcher_free(struct watcher *watcher)
 }
 
 int
-watcher_start_watching(struct watcher *watcher)
+watcher_start(struct watcher *watcher)
 {
+    if (watcher->thr)
+    {
+        log_error("(watcher) Unable to start watcher because it has already started\n");
+        return 1;
+    }
+
     log_info("(watcher) Starting\n");
 
     pthread_t thr;
     watcher->stoped = false;
     pthread_create(&thr, NULL, watcher_start_watching_thr, (void *)watcher);
-    watcher->watching_thr = thr;
+    watcher->thr = thr;
 
     return 0;
 }
@@ -149,13 +157,13 @@ watcher_signal_stop(struct watcher *watcher)
 int
 watcher_join(struct watcher *watcher)
 {
-    if (watcher->watching_thr <= 0)
+    if (watcher->thr <= 0)
         return 1;
 
     pthread_cond_broadcast(watcher->cond);
-    pthread_join(watcher->watching_thr, NULL);
+    pthread_join(watcher->thr, NULL);
 
-    watcher->watching_thr = -1;
+    watcher->thr = -1;
 
     return 0;
 }
@@ -300,17 +308,10 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
         hashmap_new(sizeof(char *), 0, 0, 0, str_hash, str_compare, &free_pointer_to_string, NULL);
     vec_for_each2(char *, r_dir, watcher->root_dirs)
     {
-        vec_scoped char **dirs = get_directories_recursive(*r_dir);
+        vec_scoped char **dirs = get_directories_recursive(*r_dir, watcher->should_include_dir);
         vec_for_each2(char *, dir_p, dirs)
         {
             char *dir = *dir_p;
-            if (watcher->should_include_dir && !watcher->should_include_dir(dir))
-            {
-                log_debug("(watcher) Directory '%s' ignored\n", dir);
-                free(dir);
-                continue;
-            }
-
             char **replaced = (char **)hashmap_set(scanned_dirs_map, &dir);
             if (replaced)
                 free(*replaced);
@@ -400,4 +401,50 @@ watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1)
 {
     const struct watched_dir *dir = item;
     return hashmap_sip(dir->dir, strlen(dir->dir), seed0, seed1);
+}
+
+#define DT_DIR 4
+static char **
+get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *))
+{
+    char **dirs = vec_create_prealloc(char *, 8);
+
+    vec_scoped char **stack = vec_create_prealloc(char *, 8);
+    vec_push(stack, str_dup(root_dir));
+
+    while (vec_length(stack))
+    {
+        char *current_dir = NULL;
+        vec_pop(stack, &current_dir);
+
+        DIR *dir = opendir(current_dir);
+        if (dir == NULL || (should_include_dir && !should_include_dir(current_dir)))
+        {
+            if (dir != NULL)
+                log_debug("(watcher) Directory '%s' ignored\n", current_dir);
+
+            closedir(dir);
+            free(current_dir);
+            continue;
+        }
+
+        vec_push(dirs, current_dir);
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL)
+        {
+            if (strncmp(entry->d_name, ".", 1) == 0 || strncmp(entry->d_name, "..", 2) == 0)
+                continue;
+
+            if (entry->d_type != DT_DIR)
+                continue;
+            char *dir_path = paths_join(current_dir, entry->d_name);
+
+            vec_push(stack, dir_path);
+        }
+
+        closedir(dir);
+    };
+
+    return dirs;
 }
