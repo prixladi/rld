@@ -13,8 +13,10 @@ struct executor_command
 };
 
 struct executor *executor_create();
-int executor_stop_join_clear(struct executor *executor);
-int executor_start(struct executor *executor, struct executor_command *commands);
+
+int executor_run_commands(struct executor *executor, struct executor_command *commands);
+int executor_stop_commands_and_wait(struct executor *executor);
+
 int executor_free(struct executor *executor);
 
 #endif

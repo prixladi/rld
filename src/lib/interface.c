@@ -86,7 +86,7 @@ entrypoint(int argc, char **argv)
             watcher_clear_event_batch(&batch);
         }
 
-        executor_stop_join_clear(executor);
+        executor_stop_commands_and_wait(executor);
 
         struct command *commands = commands_create(&changes_context, &context);
         changes_context_free(changes_context);
@@ -108,16 +108,16 @@ entrypoint(int argc, char **argv)
         }
         commands_free(commands, &context);
 
-        executor_start(executor, executor_commands);
+        executor_run_commands(executor, executor_commands);
     }
 
     if (!exiting_g)
         log_critical("Broken out of the main application loop without global exiting flag set to true");
 
-    watcher_join(watcher);
+    watcher_wait_stop(watcher);
     watcher_free(watcher);
 
-    executor_stop_join_clear(executor);
+    executor_stop_commands_and_wait(executor);
     executor_free(executor);
 
     config_free(&config);

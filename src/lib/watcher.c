@@ -156,7 +156,7 @@ watcher_signal_stop(struct watcher *watcher)
 }
 
 int
-watcher_join(struct watcher *watcher)
+watcher_wait_stop(struct watcher *watcher)
 {
     if (watcher->thr <= 0)
         return 1;

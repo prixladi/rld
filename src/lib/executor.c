@@ -44,7 +44,7 @@ executor_create()
 }
 
 int
-executor_start(struct executor *executor, struct executor_command *commands)
+executor_run_commands(struct executor *executor, struct executor_command *commands)
 {
     if (executor->thr)
     {
@@ -60,7 +60,7 @@ executor_start(struct executor *executor, struct executor_command *commands)
 }
 
 int
-executor_stop_join_clear(struct executor *executor)
+executor_stop_commands_and_wait(struct executor *executor)
 {
     if (!executor->thr)
         return 1;
