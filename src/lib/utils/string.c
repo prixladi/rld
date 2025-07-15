@@ -6,6 +6,10 @@
 
 #include "string.h"
 
+#define min(x, y) (((x) >= (y)) ? (y) : (x))
+
+static char *_str_dup(const char *str, size_t len);
+
 char *
 str_dup(const char *str)
 {
@@ -13,11 +17,17 @@ str_dup(const char *str)
         return NULL;
 
     size_t len = strlen(str);
-    char *new_str = (char *)malloc(len + 1);
-    new_str[len] = '\0';
+    return _str_dup(str, len);
+}
 
-    memcpy(new_str, str, len);
-    return new_str;
+char *
+str_dup_maxlen(const char *str, size_t max_len)
+{
+    if (!str)
+        return NULL;
+
+    size_t len = min(strlen(str), max_len);
+    return _str_dup(str, len);
 }
 
 char *
@@ -102,4 +112,14 @@ char *
 unsigned_long_to_str(unsigned long i)
 {
     return str_printf("%lu", i);
+}
+
+static char *
+_str_dup(const char *str, size_t len)
+{
+    char *new_str = (char *)malloc(len + 1);
+    new_str[len] = '\0';
+
+    memcpy(new_str, str, len);
+    return new_str;
 }

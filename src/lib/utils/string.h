@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 char *str_dup(const char *str);
+char *str_dup_maxlen(const char *str, size_t max_len);
 char *str_printf(const char *format, ...) __attribute__((format(printf, 1, 2)));
 char *_str_concat(const char *fst, ...);
 #define str_concat(...) _str_concat(__VA_ARGS__, NULL)

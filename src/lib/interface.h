@@ -22,8 +22,24 @@ struct changed_file
     bool modified;
 };
 
+struct key_value
+{
+    char *key;
+    char *value;
+};
+
+struct args
+{
+    char *short_flags;
+    char **long_flags;
+    char **values;
+    struct key_value *key_values;
+};
+
 struct context
 {
+    char *version;
+    struct args args;
 };
 
 struct changes_context
