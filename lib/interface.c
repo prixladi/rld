@@ -177,7 +177,7 @@ args_parse(int argc, char **argv)
         .values = vec_create(char *),
         .key_values = vec_create(struct key_value),
         .long_flags = vec_create(char *),
-        .short_flags = vec_create(char),
+        .flags = vec_create(char),
     };
 
     for (int i = 1; i < argc; i++)
@@ -192,7 +192,7 @@ args_parse(int argc, char **argv)
         if (strlen(arg) > 1 && str_starts_with(arg, "-"))
         {
             for (size_t j = 1; j < strlen(arg); j++)
-                vec_push(args.short_flags, arg[j]);
+                vec_push(args.flags, arg[j]);
             continue;
         }
 
@@ -217,7 +217,7 @@ args_parse(int argc, char **argv)
     vec_for_each2(char *, v, args.values) log_trace(args_trace, " '%s'\n", *v);
 
     log_trace(args_trace, "Flags: \n");
-    vec_for_each2(char, f, args.short_flags) log_trace(args_trace, " '%c'\n", *f);
+    vec_for_each2(char, f, args.flags) log_trace(args_trace, " '%c'\n", *f);
 
     log_trace(args_trace, "Long flags: \n");
     vec_for_each2(char *, lf, args.long_flags) log_trace(args_trace, " '%s'\n", *lf);
@@ -236,12 +236,12 @@ args_free(struct args args)
         free(kv->value);
     }
 
-    vec_free(args.short_flags);
+    vec_free(args.flags);
     vec_free(args.long_flags);
     vec_free(args.values);
     vec_free(args.key_values);
 
-    args.short_flags = NULL;
+    args.flags = NULL;
     args.long_flags = NULL;
     args.values = NULL;
     args.key_values = NULL;

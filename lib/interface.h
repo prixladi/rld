@@ -30,7 +30,7 @@ struct key_value
 
 struct args
 {
-    char *short_flags;
+    char *flags;
     char **long_flags;
     char **values;
     struct key_value *key_values;

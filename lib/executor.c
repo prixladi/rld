@@ -176,13 +176,13 @@ process_start(char **command, char *work_dir)
     {
         int current_pid = getpid();
 
-        log_debug("Starting process '%s - %d'\n", command[0], current_pid);
+        log_debug("(executor) Starting process '%s - %d'\n", command[0], current_pid);
 
         if (work_dir)
             chdir(work_dir);
         execvp(command[0], command);
 
-        log_critical("Unable to execute command '%s' with pid %d, aborting\n", command[0], current_pid);
+        log_critical("(executor) Unable to execute command '%s' with pid %d, aborting\n", command[0], current_pid);
         _exit(123);
     }
 

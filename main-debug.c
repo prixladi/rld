@@ -1,6 +1,7 @@
 #include <stdlib.h>
 
 #include "lib/interface.h"
+#include "lib/helpers.h"
 
 #include "lib/utils/string.h"
 #include "lib/utils/vector.h"
@@ -14,8 +15,8 @@ config_create(struct context *context)
         .watch_paths = vec_create_prealloc(char *, 2), .debounce_ms = 500, .work_dir = NULL, .user_data = NULL
     };
 
-    vec_push(config.watch_paths, "./run");
-    vec_push(config.watch_paths, "./run2");
+    vec_push(config.watch_paths, "run");
+    vec_push(config.watch_paths, "run2");
 
     return config;
 }
@@ -61,13 +62,13 @@ commands_free(struct command *commands, struct context *context)
 bool
 should_include_dir(char *dir)
 {
-    return !str_starts_with(dir, "./run2");
+    return !path_contains_subpath(dir, "run2", true);
 }
 
 bool
 should_include_file_change(char *dir, char *file_name)
 {
-    return str_ends_with(file_name, ".c");
+    return file_has_extension(file_name, "c");
 }
 
 void
