@@ -1,7 +1,7 @@
 CC=gcc
 FLAGS = -W -std=c99 -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600
-SOURCES = src/*.c src/lib/*.c src/lib/utils/*.c 
-HEADERS = src/lib/*.h src/lib/utils/*.h 
+SOURCES = main-debug.c lib/*.c lib/utils/*.c 
+HEADERS = lib/*.h lib/utils/*.h 
 
 .PHONY: build install run
 
