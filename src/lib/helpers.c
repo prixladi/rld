@@ -55,7 +55,7 @@ path_contains_subpath(const char *path, const char *_sp, bool from_start)
 }
 
 int
-args_contain_flag(struct args *args, char f)
+args_count_flag(struct args *args, char f)
 {
     int count = 0;
     vec_for_each2(char, c, args->flags)
@@ -68,7 +68,7 @@ args_contain_flag(struct args *args, char f)
 }
 
 int
-args_contain_long_flag(struct args *args, char *f)
+args_count_long_flag(struct args *args, char *f)
 {
     int count = 0;
     vec_for_each2(char *, str, args->long_flags)
@@ -81,7 +81,7 @@ args_contain_long_flag(struct args *args, char *f)
 }
 
 int
-args_contain_value(struct args *args, char *value)
+args_count_value(struct args *args, char *value)
 {
     int count = 0;
     vec_for_each2(char *, str, args->values)
@@ -98,7 +98,7 @@ args_get_key_value(struct args *args, char *key, struct key_value *out_kv)
 {
     vec_for_each2(struct key_value, kv, args->key_values)
     {
-        if (strcmp(key, kv->key))
+        if (strcmp(key, kv->key) == 0)
         {
             memcpy(out_kv, kv, sizeof(struct key_value));
             return true;

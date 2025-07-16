@@ -8,19 +8,20 @@
 
 __MAIN
 
-struct config
-config_create(struct context *context)
+int
+config_init(struct context *context, struct config *config)
 {
     (void)context;
 
-    struct config config = {
-        .watch_paths = vec_create_prealloc(char *, 2), .debounce_ms = 500, .work_dir = NULL, .user_data = NULL
-    };
+    config->watch_paths = vec_create_prealloc(char *, 2);
+    config->debounce_ms = 500;
+    config->work_dir = NULL;
+    config->user_data = NULL;
 
-    vec_push(config.watch_paths, "run");
-    vec_push(config.watch_paths, "run2");
+    vec_push(config->watch_paths, "run");
+    vec_push(config->watch_paths, "run2");
 
-    return config;
+    return 0;
 }
 
 struct command *
@@ -80,10 +81,10 @@ should_include_file_change(char *dir ,char *file_name)
 }
 
 void
-config_free(struct config config, struct context *context)
+config_free(struct config* config, struct context *context)
 {
     (void)context;
 
-    vec_free(config.watch_paths);
-    config.watch_paths = NULL;
+    vec_free(config->watch_paths);
+    config->watch_paths = NULL;
 }

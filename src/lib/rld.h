@@ -65,8 +65,8 @@ struct command
     char *work_dir;
 };
 
-struct config config_create(struct context *context);
-void config_free(struct config config, struct context *context);
+int config_init(struct context *context, struct config *config);
+void config_free(struct config *config, struct context *context);
 
 struct command *commands_create(struct changes_context *changes_context, struct context *context);
 void commands_free(struct command *commands, struct context *context);

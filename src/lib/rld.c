@@ -12,8 +12,9 @@
 #include "utils/log.h"
 #include "utils/time.h"
 #include "utils/memory.h"
+#include "utils/fs.h"
 
-#include "interface.h"
+#include "rld.h"
 #include "watcher.h"
 #include "executor.h"
 
@@ -43,15 +44,34 @@ entrypoint(int argc, char **argv)
     signal(SIGHUP, graceful_stop_handler);
 
     struct context context = { .version = VERSION, .args = args_parse(argc, argv) };
-    struct config config = config_create(&context);
+    struct config config = { 0 };
+
+    if (config_init(&context, &config) != 0)
+    {
+        log_critical("Unable to init config.\n");
+        args_free(context.args);
+        return 100;
+    }
 
     if (config.work_dir)
+    {
+        if (!dir_exists(config.work_dir))
+        {
+            log_critical("Directory '%s' provided in config does not exist.\n", config.work_dir);
+            args_free(context.args);
+            config_free(&config, &context);
+            return 101;
+        }
+
         chdir(config.work_dir);
+    }
 
     struct watcher *watcher = watcher_create(config.watch_paths, should_include_dir, should_include_file_change);
     if (!watcher)
     {
         log_critical("Unable to initialize watcher.\n");
+        args_free(context.args);
+        config_free(&config, &context);
         return 1;
     }
     watcher_g = watcher;
@@ -59,16 +79,20 @@ entrypoint(int argc, char **argv)
     struct executor *executor = executor_create();
     if (!executor)
     {
-        watcher_free(watcher);
         log_critical("Unable to initialize executor.\n");
+        args_free(context.args);
+        config_free(&config, &context);
+        watcher_free(watcher);
         return 2;
     }
 
     if (watcher_start(watcher) != 0)
     {
+        log_critical("Unable to start watcher.\n");
+        args_free(context.args);
+        config_free(&config, &context);
         watcher_free(watcher);
         executor_free(executor);
-        log_critical("Unable to start watcher.\n");
         return 3;
     }
 
@@ -134,7 +158,7 @@ entrypoint(int argc, char **argv)
     executor_stop_commands_and_wait(executor);
     executor_free(executor);
 
-    config_free(config, &context);
+    config_free(&config, &context);
 
     args_free(context.args);
     return 0;

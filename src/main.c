@@ -8,8 +8,8 @@
 
 __MAIN
 
-struct config
-config_create(struct context *context)
+int
+config_init(struct context *context, struct config *config)
 {
 }
 
@@ -34,6 +34,6 @@ should_include_file_change(char *dir, char *file_name)
 }
 
 void
-config_free(struct config config, struct context *context)
+config_free(struct config* config, struct context *context)
 {
 }
