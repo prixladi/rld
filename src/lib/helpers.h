@@ -1,7 +1,7 @@
 #ifndef HELPERS__H
 #define HELPERS__H
 
-#include "interface.h"
+#include "rld.h"
 
 bool file_has_extension(const char *file, const char *extension);
 bool path_contains_subpath(const char *path, const char *_sp, bool from_start);
