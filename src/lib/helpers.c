@@ -93,12 +93,17 @@ args_contain_value(struct args *args, char *value)
     return count;
 }
 
-struct key_value
-args_get_key_value(struct args *args, char *key)
+bool
+args_get_key_value(struct args *args, char *key, struct key_value *out_kv)
 {
     vec_for_each2(struct key_value, kv, args->key_values)
     {
         if (strcmp(key, kv->key))
-            return *kv;
+        {
+            memcpy(out_kv, kv, sizeof(struct key_value));
+            return true;
+        }
     }
+
+    return false;
 }

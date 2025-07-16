@@ -46,7 +46,7 @@ get_current_timespec_plus_ms(time_t ms)
 {
     struct timeval tp;
     struct timespec ts;
-    int rc = gettimeofday(&tp, NULL);
+    gettimeofday(&tp, NULL);
 
     ts.tv_sec = tp.tv_sec;
     ts.tv_nsec = tp.tv_usec * 1000;

@@ -114,6 +114,8 @@ executor_free(struct executor *executor)
     executor->lock = NULL;
 
     free(executor);
+
+    return 0;
 }
 
 static void *
@@ -133,7 +135,7 @@ execute(void *data)
             return NULL;
         }
 
-        scoped char *command_desc = str_printf("%s (%d/%d)", command->name, i + 1, vec_length(executor->commands));
+        scoped char *command_desc = str_printf("%s (%ld/%ld)", command->name, i + 1, vec_length(executor->commands));
 
         log_info("(executor) Starting command: '%s'\n", command_desc);
         pid_t pid = process_start(command->exec, command->work_dir);

@@ -53,8 +53,6 @@ static void pointer_to_string_free(void *item);
 
 static int str_compare(const void *a, const void *b, void *udata);
 static uint64_t str_hash(const void *item, uint64_t seed0, uint64_t seed1);
-static int watched_dir_compare(const void *a, const void *b, void *udata);
-static uint64_t watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1);
 
 static char **get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *));
 
@@ -126,6 +124,8 @@ watcher_free(struct watcher *watcher)
     watcher->cond = NULL;
 
     free(watcher);
+
+    return 0;
 }
 
 int
@@ -154,6 +154,8 @@ watcher_signal_stop(struct watcher *watcher)
 
     watcher->stoped = true;
     pthread_cond_broadcast(watcher->cond);
+
+    return 0;
 }
 
 int
@@ -226,6 +228,8 @@ watcher_free_event_batch(struct watcher_event_batch batch)
     batch.file_events = NULL;
     batch.dir_structure_changed = false;
     batch.latest_change_timestamp = 0;
+
+    return 0;
 }
 
 static void *
@@ -400,7 +404,7 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
 
     hashmap_free(scanned_dirs_map);
 
-    log_debug("(watcher) Now watching %d dirs\n", hashmap_count(watcher->watched_dirs));
+    log_debug("(watcher) Now watching %ld dirs\n", hashmap_count(watcher->watched_dirs));
 }
 
 static void
@@ -420,6 +424,7 @@ pointer_to_string_free(void *item)
 static int
 str_compare(const void *a, const void *b, void *udata)
 {
+    (void)udata;
     const char *const *sa = a;
     const char *const *sb = b;
     return strcmp(*sa, *sb);
@@ -432,22 +437,6 @@ str_hash(const void *item, uint64_t seed0, uint64_t seed1)
     return hashmap_sip(*str, strlen(*str), seed0, seed1);
 }
 
-static int
-watched_dir_compare(const void *a, const void *b, void *udata)
-{
-    const struct watched_dir *wa = a;
-    const struct watched_dir *wb = b;
-    return strcmp(wa->dir, wb->dir);
-}
-
-static uint64_t
-watched_dir_hash(const void *item, uint64_t seed0, uint64_t seed1)
-{
-    const struct watched_dir *dir = item;
-    return hashmap_sip(dir->dir, strlen(dir->dir), seed0, seed1);
-}
-
-#define DT_DIR 4
 static char **
 get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *))
 {
@@ -480,7 +469,8 @@ get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char 
             if (strncmp(entry->d_name, ".", 1) == 0 || strncmp(entry->d_name, "..", 2) == 0)
                 continue;
 
-            if (entry->d_type != DT_DIR)
+            const int dt_dir = 4;
+            if (entry->d_type != dt_dir)
                 continue;
             char *dir_path = paths_join(current_dir, entry->d_name);
 

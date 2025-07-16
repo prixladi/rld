@@ -11,6 +11,8 @@ __MAIN
 struct config
 config_create(struct context *context)
 {
+    (void)context;
+
     struct config config = {
         .watch_paths = vec_create_prealloc(char *, 2), .debounce_ms = 500, .work_dir = NULL, .user_data = NULL
     };
@@ -24,6 +26,9 @@ config_create(struct context *context)
 struct command *
 commands_create(struct changes_context *changes_context, struct context *context)
 {
+    (void)changes_context;
+    (void)context;
+
     char **build_exec = vec_create_prealloc(char *, 4);
 
     vec_push(build_exec, "gcc");
@@ -50,6 +55,8 @@ commands_create(struct changes_context *changes_context, struct context *context
 void
 commands_free(struct command *commands, struct context *context)
 {
+    (void)context;
+
     vec_for_each2(struct command, command, commands)
     {
         vec_free(command->exec);
@@ -66,14 +73,17 @@ should_include_dir(char *dir)
 }
 
 bool
-should_include_file_change(char *dir, char *file_name)
+should_include_file_change(char *dir ,char *file_name)
 {
+    (void)dir;
     return file_has_extension(file_name, "c");
 }
 
 void
 config_free(struct config config, struct context *context)
 {
+    (void)context;
+
     vec_free(config.watch_paths);
     config.watch_paths = NULL;
 }
