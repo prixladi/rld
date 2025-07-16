@@ -42,7 +42,7 @@ path_contains_subpath(const char *path, const char *_sp, bool from_start)
         bool is_first_in_path = (idx - 1) == path && *(idx - 1) == '/';
         bool is_first_in_relative_path = (idx - 2) == path && *(idx - 1) == '/' && *(idx - 2) == '.';
 
-        if(!is_start && !is_first_in_path && !is_first_in_relative_path)
+        if (!is_start && !is_first_in_path && !is_first_in_relative_path)
             return false;
     }
 

@@ -1,33 +1,39 @@
 CC=gcc
 FLAGS = -W -std=c99 -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600
-SOURCES = main-debug.c lib/*.c lib/utils/*.c 
-HEADERS = lib/*.h lib/utils/*.h 
+SOURCES = main-debug.c src/lib/*.c src/lib/utils/*.c 
+HEADERS = src/lib/*.h src/lib/utils/*.h 
 
 .PHONY: build install run
 
 setup: 
-	mkdir -p run && mkdir -p build
+	mkdir -p run && mkdir -p build build-debug
 
-build: FLAGS += -O2
-build: setup
-	$(CC) $(FLAGS) $(SOURCES) -o ./build/reload
+build_debug: FLAGS += -O2
+build_debug: setup
+	$(CC) $(FLAGS) $(SOURCES) -o ./build-debug/rld-debug-a
 
-run: build
-	./build/reload 
+run_debug: build_debug
+	./build-debug/rld-debug-a
 
 build_debug_address: FLAGS += -fsanitize=undefined,address -g -D __DEBUG__
 build_debug_address: setup
-	$(CC) $(FLAGS) $(SOURCES) -o ./build/reload-debug
+	$(CC) $(FLAGS) $(SOURCES) -o ./build-debug/rld-debug-a
+
+run_debug_address: build_debug_address
+	./build-debug/rld-debug-a
 
 build_debug_thread: FLAGS += -fsanitize=undefined,thread -g -D __DEBUG__
 build_debug_thread: setup
-	$(CC) $(FLAGS) $(SOURCES) -o ./build/reload-debug
+	$(CC) $(FLAGS) $(SOURCES) -o ./build-debug/rld-debug-t
 
 run_debug_thread: build_debug_thread
-	./build/reload-debug 
-
-run_debug_address: build_debug_address
-	./build/reload-debug 
+	./build-debug/rld-debug-t
 	
 format: 
 	clang-format -i $(SOURCES) $(HEADERS)
+
+build: setup
+	./build.sh
+
+install: build
+	sudo cp ./build/rld.sh /usr/local/bin/rld && sudo chmod +x /usr/local/bin/rld

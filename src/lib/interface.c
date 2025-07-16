@@ -34,7 +34,7 @@ bool stopping_g = false;
 int
 entrypoint(int argc, char **argv)
 {
-    log_init(TRACE);
+    log_init(INFO);
 
     signal(SIGPIPE, SIG_IGN);
 

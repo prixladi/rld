@@ -1,10 +1,10 @@
 #include <stdlib.h>
 
-#include "lib/interface.h"
-#include "lib/helpers.h"
+#include "src/lib/interface.h"
+#include "src/lib/helpers.h"
 
-#include "lib/utils/string.h"
-#include "lib/utils/vector.h"
+#include "src/lib/utils/string.h"
+#include "src/lib/utils/vector.h"
 
 __MAIN
 
@@ -34,7 +34,7 @@ commands_create(struct changes_context *changes_context, struct context *context
     char **run_exec = vec_create_prealloc(char *, 2);
 
     vec_push(run_exec, "./run.out");
-    vec_push(run_exec, "reload");
+    vec_push(run_exec, "rld");
 
     struct command *commands = vec_create_prealloc(struct command, 5);
 
