@@ -33,8 +33,8 @@ struct watched_dir
 struct watcher
 {
     char **root_dirs;
-    bool (*should_include_dir)(char *);
-    bool (*should_include_file_change)(char *, char *);
+    bool (*should_include_dir)(char *, void *);
+    bool (*should_include_file_change)(char *, char *, void *);
 
     pthread_t thr;
     bool stoped;
@@ -43,6 +43,8 @@ struct watcher
     struct watcher_event_batch event_batch;
     pthread_mutex_t *lock;
     pthread_cond_t *cond;
+
+    void *context;
 };
 
 static void init_and_add_watched_dirs(struct watcher *watcher, int fd);
@@ -54,10 +56,11 @@ static void pointer_to_string_free(void *item);
 static int str_compare(const void *a, const void *b, void *udata);
 static uint64_t str_hash(const void *item, uint64_t seed0, uint64_t seed1);
 
-static char **get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *));
+static char **get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *, void *), void *context);
 
 struct watcher *
-watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*should_include_file_change)(char *, char *))
+watcher_create(char **root_dirs, bool (*should_include_dir)(char *, void *),
+               bool (*should_include_file_change)(char *, char *, void *), void *context)
 {
     struct watcher *watcher = calloc(1, sizeof(struct watcher));
 
@@ -68,6 +71,7 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *), bool (*shou
     watcher->root_dirs = r_dirs;
     watcher->should_include_dir = should_include_dir;
     watcher->should_include_file_change = should_include_file_change;
+    watcher->context = context;
 
     watcher->watched_dirs =
         hashmap_new(sizeof(struct watched_dir), 0, 0, 0, str_hash, str_compare, watched_dir_free, NULL);
@@ -284,7 +288,8 @@ watcher_start_watching_thr(void *data)
                 continue;
             }
 
-            if (watcher->should_include_file_change && !watcher->should_include_file_change(event_dir, event->name))
+            if (watcher->should_include_file_change &&
+                !watcher->should_include_file_change(event_dir, event->name, watcher->context))
             {
                 log_debug("(watcher) File '%s' in directory '%s' change ignored\n", event->name, event_dir);
                 continue;
@@ -356,7 +361,7 @@ init_and_add_watched_dirs(struct watcher *watcher, int notify_fd)
         hashmap_new(sizeof(char *), 0, 0, 0, str_hash, str_compare, pointer_to_string_free, NULL);
     vec_for_each2(char *, r_dir, watcher->root_dirs)
     {
-        vec_scoped char **dirs = get_directories_recursive(*r_dir, watcher->should_include_dir);
+        vec_scoped char **dirs = get_directories_recursive(*r_dir, watcher->should_include_dir, watcher->context);
         vec_for_each2(char *, dir_p, dirs)
         {
             char *dir = *dir_p;
@@ -438,7 +443,7 @@ str_hash(const void *item, uint64_t seed0, uint64_t seed1)
 }
 
 static char **
-get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *))
+get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char *, void *), void *context)
 {
     char **dirs = vec_create_prealloc(char *, 8);
 
@@ -451,7 +456,7 @@ get_directories_recursive(const char *root_dir, bool (*should_include_dir)(char 
         vec_pop(stack, &current_dir);
 
         DIR *dir = opendir(current_dir);
-        if (dir == NULL || (should_include_dir && !should_include_dir(current_dir)))
+        if (dir == NULL || (should_include_dir && !should_include_dir(current_dir, context)))
         {
             if (dir != NULL)
                 log_debug("(watcher) Directory '%s' ignored\n", current_dir);

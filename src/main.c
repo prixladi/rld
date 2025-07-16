@@ -24,12 +24,12 @@ commands_free(struct command *commands, struct context *context)
 }
 
 bool
-should_include_dir(char *dir)
+should_include_dir(char *dir, struct context *context)
 {
 }
 
 bool
-should_include_file_change(char *dir, char *file_name)
+should_include_file_change(char *dir, char *file_name, struct context *context)
 {
 }
 

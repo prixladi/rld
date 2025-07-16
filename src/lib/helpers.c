@@ -73,7 +73,7 @@ args_count_long_flag(struct args *args, char *f)
     int count = 0;
     vec_for_each2(char *, str, args->long_flags)
     {
-        if (strcmp(f, *str))
+        if (strcmp(f, *str) == 0)
             count++;
     }
 
@@ -86,7 +86,7 @@ args_count_value(struct args *args, char *value)
     int count = 0;
     vec_for_each2(char *, str, args->values)
     {
-        if (strcmp(value, *str))
+        if (strcmp(value, *str) == 0)
             count++;
     }
 

@@ -17,25 +17,28 @@
 #include "rld.h"
 #include "watcher.h"
 #include "executor.h"
+#include "helpers.h"
 
 static void graceful_stop_handler(int signal);
+static void app_loop(struct watcher *watcher, struct executor *executor, struct context *context);
+
 static void changed_file_free(struct changed_file cf);
 static void changes_context_free(struct changes_context cf);
 
-static struct args args_parse(int argc, char **argv);
-static void args_free(struct args args);
+static int args_parse(int argc, char **argv, struct args *args);
+static void args_print(struct args *args);
+static int args_free(struct args *args);
+
+static bool should_include_dir_p(char *dir, void *context);
+static bool should_include_file_change_p(char *dir, char *file_name, void *context);
 
 struct watcher *watcher_g = NULL;
 bool stopping_g = false;
 
-#ifndef VERSION
-#define VERSION "0"
-#endif
-
 int
-entrypoint(int argc, char **argv)
+app(int argc, char **argv)
 {
-    log_init(INFO);
+    int exit_code = 0;
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -43,36 +46,54 @@ entrypoint(int argc, char **argv)
     signal(SIGINT, graceful_stop_handler);
     signal(SIGHUP, graceful_stop_handler);
 
-    struct context context = { .version = VERSION, .args = args_parse(argc, argv) };
-    struct config config = { 0 };
+    struct args args = { 0 };
+    if (args_parse(argc, argv, &args) != 0)
+    {
+        log_critical("Unable to parse args.\n");
+        exit_code = 100;
+        goto exit;
+    }
 
+    int verbose_count = args_count_flag(&args, 'v');
+    if (verbose_count == 0)
+        log_init(INFO);
+    else if (verbose_count == 1)
+        log_init(DEBUG);
+    else if (verbose_count == 2)
+        log_init(TRACE);
+        
+    args_print(&args);
+
+    struct context context = { .version = 0, .args = args };
+
+    struct config config = { 0 };
     if (config_init(&context, &config) != 0)
     {
         log_critical("Unable to init config.\n");
-        args_free(context.args);
-        return 100;
+        exit_code = 101;
+        goto args_free;
     }
+    context.config = config;
 
     if (config.work_dir)
     {
         if (!dir_exists(config.work_dir))
         {
             log_critical("Directory '%s' provided in config does not exist.\n", config.work_dir);
-            args_free(context.args);
-            config_free(&config, &context);
-            return 101;
+            exit_code = 102;
+            goto config_free;
         }
 
         chdir(config.work_dir);
     }
 
-    struct watcher *watcher = watcher_create(config.watch_paths, should_include_dir, should_include_file_change);
+    struct watcher *watcher =
+        watcher_create(config.watch_paths, should_include_dir_p, should_include_file_change_p, &context);
     if (!watcher)
     {
         log_critical("Unable to initialize watcher.\n");
-        args_free(context.args);
-        config_free(&config, &context);
-        return 1;
+        exit_code = 1;
+        goto config_free;
     }
     watcher_g = watcher;
 
@@ -80,22 +101,40 @@ entrypoint(int argc, char **argv)
     if (!executor)
     {
         log_critical("Unable to initialize executor.\n");
-        args_free(context.args);
-        config_free(&config, &context);
-        watcher_free(watcher);
-        return 2;
+        exit_code = 2;
+        goto watcher_free;
     }
 
     if (watcher_start(watcher) != 0)
     {
         log_critical("Unable to start watcher.\n");
-        args_free(context.args);
-        config_free(&config, &context);
-        watcher_free(watcher);
-        executor_free(executor);
-        return 3;
+        exit_code = 2;
+        goto executor_free;
     }
 
+    app_loop(watcher, executor, &context);
+
+    if (!stopping_g)
+        log_critical("Broken out of the main application loop without global 'stopping' flag set to true");
+
+    watcher_wait_for_stop(watcher);
+    executor_stop_commands_and_wait(executor);
+
+watcher_free:
+    watcher_free(watcher);
+executor_free:
+    executor_free(executor);
+config_free:
+    config_free(&config, &context);
+args_free:
+    args_free(&args);
+exit:
+    return exit_code;
+}
+
+static void
+app_loop(struct watcher *watcher, struct executor *executor, struct context *context)
+{
     for (bool is_first_run = true; !stopping_g; is_first_run = false)
     {
         struct changes_context changes_context = { .changed_files = vec_create(struct changed_file),
@@ -105,7 +144,7 @@ entrypoint(int argc, char **argv)
         if (!is_first_run)
         {
             struct watcher_event_batch batch = { 0 };
-            int result = watcher_read_event_batch(watcher, config.debounce_ms, &batch);
+            int result = watcher_read_event_batch(watcher, context->config.debounce_ms, &batch);
             // watcher stopped that means that whole app should stop
             if (result != 0)
             {
@@ -124,7 +163,7 @@ entrypoint(int argc, char **argv)
 
         executor_stop_commands_and_wait(executor);
 
-        struct command *commands = commands_create(&changes_context, &context);
+        struct command *commands = commands_create(&changes_context, context);
         changes_context_free(changes_context);
 
         struct executor_command *executor_commands = vec_create_prealloc(struct executor_command, vec_length(commands));
@@ -144,24 +183,10 @@ entrypoint(int argc, char **argv)
             };
             vec_push(executor_commands, ec);
         }
-        commands_free(commands, &context);
+        commands_free(commands, context);
 
         executor_run_commands(executor, executor_commands);
     }
-
-    if (!stopping_g)
-        log_critical("Broken out of the main application loop without global stopping flag set to true");
-
-    watcher_wait_for_stop(watcher);
-    watcher_free(watcher);
-
-    executor_stop_commands_and_wait(executor);
-    executor_free(executor);
-
-    config_free(&config, &context);
-
-    args_free(context.args);
-    return 0;
 }
 
 static void
@@ -194,15 +219,13 @@ changes_context_free(struct changes_context cf)
     cf.changed_files = NULL;
 }
 
-static struct args
-args_parse(int argc, char **argv)
+static int
+args_parse(int argc, char **argv, struct args *args)
 {
-    struct args args = {
-        .values = vec_create(char *),
-        .key_values = vec_create(struct key_value),
-        .long_flags = vec_create(char *),
-        .flags = vec_create(char),
-    };
+    args->values = vec_create(char *);
+    args->key_values = vec_create(struct key_value);
+    args->long_flags = vec_create(char *);
+    args->flags = vec_create(char);
 
     for (int i = 1; i < argc; i++)
     {
@@ -210,63 +233,80 @@ args_parse(int argc, char **argv)
 
         if (strlen(arg) > 2 && str_starts_with(arg, "--"))
         {
-            vec_push(args.long_flags, str_dup(arg + 2));
+            vec_push(args->long_flags, str_dup(arg + 2));
             continue;
         }
         if (strlen(arg) > 1 && str_starts_with(arg, "-"))
         {
             for (size_t j = 1; j < strlen(arg); j++)
-                vec_push(args.flags, arg[j]);
+                vec_push(args->flags, arg[j]);
             continue;
         }
 
         char *substr_pos = strstr(arg, "=");
         if (substr_pos == NULL)
         {
-            vec_push(args.values, str_dup(arg));
+            vec_push(args->values, str_dup(arg));
             continue;
         }
 
         ptrdiff_t value_pos = substr_pos - arg;
         struct key_value kv = { .key = str_dup_maxlen(arg, value_pos), .value = str_dup(substr_pos + 1) };
-        vec_push(args.key_values, kv);
+        vec_push(args->key_values, kv);
     }
 
-    const char *args_trace = "ARGS";
-
-    log_trace(args_trace, "Key value args: \n");
-    vec_for_each2(struct key_value, kv, args.key_values) log_trace(args_trace, " '%s' = '%s'\n", kv->key, kv->value);
-
-    log_trace(args_trace, "Value args: \n");
-    vec_for_each2(char *, v, args.values) log_trace(args_trace, " '%s'\n", *v);
-
-    log_trace(args_trace, "Flags: \n");
-    vec_for_each2(char, f, args.flags) log_trace(args_trace, " '%c'\n", *f);
-
-    log_trace(args_trace, "Long flags: \n");
-    vec_for_each2(char *, lf, args.long_flags) log_trace(args_trace, " '%s'\n", *lf);
-
-    return args;
+    return 0;
 }
 
+#define ARGS_TRACE "ARGS"
 static void
-args_free(struct args args)
+args_print(struct args *args)
 {
-    vec_for_each(args.values, free);
-    vec_for_each(args.long_flags, free);
-    vec_for_each2(struct key_value, kv, args.key_values)
+    log_trace(ARGS_TRACE, "Key value args: \n");
+    vec_for_each2(struct key_value, kv, args->key_values) log_trace(ARGS_TRACE, " '%s' = '%s'\n", kv->key, kv->value);
+
+    log_trace(ARGS_TRACE, "Value args: \n");
+    vec_for_each2(char *, v, args->values) log_trace(ARGS_TRACE, " '%s'\n", *v);
+
+    log_trace(ARGS_TRACE, "Flags: \n");
+    vec_for_each2(char, f, args->flags) log_trace(ARGS_TRACE, " '%c'\n", *f);
+
+    log_trace(ARGS_TRACE, "Long flags: \n");
+    vec_for_each2(char *, lf, args->long_flags) log_trace(ARGS_TRACE, " '%s'\n", *lf);
+}
+
+static int
+args_free(struct args *args)
+{
+    vec_for_each(args->values, free);
+    vec_for_each(args->long_flags, free);
+    vec_for_each2(struct key_value, kv, args->key_values)
     {
         free(kv->key);
         free(kv->value);
     }
 
-    vec_free(args.flags);
-    vec_free(args.long_flags);
-    vec_free(args.values);
-    vec_free(args.key_values);
+    vec_free(args->flags);
+    vec_free(args->long_flags);
+    vec_free(args->values);
+    vec_free(args->key_values);
 
-    args.flags = NULL;
-    args.long_flags = NULL;
-    args.values = NULL;
-    args.key_values = NULL;
+    args->flags = NULL;
+    args->long_flags = NULL;
+    args->values = NULL;
+    args->key_values = NULL;
+
+    return 0;
+}
+
+static bool
+should_include_dir_p(char *dir, void *context)
+{
+    return should_include_dir(dir, (struct context *)context);
+}
+
+static bool
+should_include_file_change_p(char *dir, char *file_name, void *context)
+{
+    return should_include_file_change(dir, file_name, (struct context *)context);
 }

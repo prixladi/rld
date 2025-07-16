@@ -68,15 +68,19 @@ commands_free(struct command *commands, struct context *context)
 }
 
 bool
-should_include_dir(char *dir)
+should_include_dir(char *dir, struct context *context)
 {
+    (void)context;
+    
     return !path_contains_subpath(dir, "run2", true);
 }
 
 bool
-should_include_file_change(char *dir ,char *file_name)
+should_include_file_change(char *dir ,char *file_name, struct context *context)
 {
     (void)dir;
+    (void)context;
+
     return file_has_extension(file_name, "c");
 }
 
