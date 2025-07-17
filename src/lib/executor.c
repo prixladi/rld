@@ -60,7 +60,7 @@ executor_run_commands(struct executor *executor, struct executor_command *comman
 }
 
 int
-executor_stop_commands_and_wait(struct executor *executor)
+executor_wait_for_commands_to_finish(struct executor *executor)
 {
     if (!executor->thr)
         return 1;
@@ -71,7 +71,7 @@ executor_stop_commands_and_wait(struct executor *executor)
 
     vec_for_each2(struct executor_command, command, executor->commands)
     {
-        if (command->pid)
+        if (command->pid && !command->no_interrupt)
             process_kill(command->pid);
     }
 

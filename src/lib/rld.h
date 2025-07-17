@@ -64,6 +64,7 @@ struct command
     char *name;
     char **exec;
     char *work_dir;
+    bool no_interrupt;
 };
 
 int config_init(struct context *context, struct config *config);

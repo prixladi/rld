@@ -59,9 +59,9 @@ app(int argc, char **argv)
         log_init(INFO);
     else if (verbose_count == 1)
         log_init(DEBUG);
-    else if (verbose_count == 2)
+    else
         log_init(TRACE);
-        
+
     args_print(&args);
 
     struct context context = { .version = 0, .args = args };
@@ -118,7 +118,7 @@ app(int argc, char **argv)
         log_critical("Broken out of the main application loop without global 'stopping' flag set to true");
 
     watcher_wait_for_stop(watcher);
-    executor_stop_commands_and_wait(executor);
+    executor_wait_for_commands_to_finish(executor);
 
 watcher_free:
     watcher_free(watcher);
@@ -161,7 +161,7 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
             watcher_free_event_batch(batch);
         }
 
-        executor_stop_commands_and_wait(executor);
+        executor_wait_for_commands_to_finish(executor);
 
         struct command *commands = commands_create(&changes_context, context);
         changes_context_free(changes_context);
@@ -178,9 +178,11 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
             }
             vec_push(exec, NULL);
 
-            struct executor_command ec = {
-                .name = str_dup(command->name), .exec = exec, .work_dir = str_dup(command->work_dir), .pid = 0
-            };
+            struct executor_command ec = { .name = str_dup(command->name),
+                                           .exec = exec,
+                                           .work_dir = str_dup(command->work_dir),
+                                           .no_interrupt = command->no_interrupt,
+                                           .pid = 0 };
             vec_push(executor_commands, ec);
         }
         commands_free(commands, context);

@@ -10,13 +10,15 @@ struct executor_command
     char *name;
     char **exec;
     char *work_dir;
+    bool no_interrupt; 
+
     pid_t pid;
 };
 
 struct executor *executor_create();
 
 int executor_run_commands(struct executor *executor, struct executor_command *commands);
-int executor_stop_commands_and_wait(struct executor *executor);
+int executor_wait_for_commands_to_finish(struct executor *executor);
 
 int executor_free(struct executor *executor);
 

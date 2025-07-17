@@ -9,6 +9,3 @@ setup:
 
 build: setup
 	$(CC) $(FLAGS) $(SOURCES) -o ./.bin/rld
-
-run: build
-	cd .. && ./.rld/.bin/rld

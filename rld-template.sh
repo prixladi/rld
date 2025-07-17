@@ -53,7 +53,9 @@ rld_initialize () {
 
 rld_run () {
     cd $RLD_DIR
-    make run
+    make build
+    cd ..
+    $RLD_DIR/.bin/rld "$@"
 }
 
 rld_update () {
@@ -75,17 +77,17 @@ case $1 in
     
     "init")
         ensure_rld_does_not_exist
-        rld_initialize
+        rld_initialize "${@:2}"
     ;;
     
     "run")
         ensure_rld_exists
-        rld_run
+        rld_run "${@:2}"
     ;;
     
     "update")
         ensure_rld_exists
-        rld_update
+        rld_update "${@:2}"
     ;;
     
     *)
