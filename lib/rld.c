@@ -33,6 +33,7 @@ static bool should_include_dir_p(char *dir, void *context);
 static bool should_include_file_change_p(char *dir, char *file_name, void *context);
 
 struct watcher *watcher_g = NULL;
+struct executor *executor_g = NULL;
 bool stopping_g = false;
 
 int
@@ -104,6 +105,7 @@ app(int argc, char **argv)
         exit_code = 2;
         goto watcher_free;
     }
+    executor_g = executor;
 
     if (watcher_start(watcher) != 0)
     {
@@ -118,7 +120,7 @@ app(int argc, char **argv)
         log_critical("Broken out of the main application loop without global 'stopping' flag set to true");
 
     watcher_wait_for_stop(watcher);
-    executor_wait_for_commands_to_finish(executor, true);
+    executor_stop_commands_and_wait(executor, true);
 
 watcher_free:
     watcher_free(watcher);
@@ -130,6 +132,21 @@ args_free:
     args_free(&args);
 exit:
     return exit_code;
+}
+
+static void
+graceful_stop_handler(int signal)
+{
+    (void)signal;
+    // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
+    write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
+
+    // TODO: Neither of the functions bellow is async-signal-safe but it works, so i will solve it some other time
+    stopping_g = true;
+    if (watcher_g)
+        watcher_signal_stop(watcher_g);
+    if (executor_g)
+        executor_signal_stop(executor_g);
 }
 
 static void
@@ -161,7 +178,7 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
             watcher_free_event_batch(batch);
         }
 
-        executor_wait_for_commands_to_finish(executor, false);
+        executor_stop_commands_and_wait(executor, false);
 
         struct command *commands = commands_create(&changes_context, context);
         changes_context_free(changes_context);
@@ -189,18 +206,6 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
 
         executor_run_commands(executor, executor_commands);
     }
-}
-
-static void
-graceful_stop_handler(int signal)
-{
-    (void)signal;
-    // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
-    write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
-
-    stopping_g = true;
-    if (watcher_g)
-        watcher_signal_stop(watcher_g);
 }
 
 static void

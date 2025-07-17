@@ -44,6 +44,16 @@ executor_create()
 }
 
 int
+executor_signal_stop(struct executor *executor)
+{
+    log_info("(executor) Signal stopping\n");
+
+    executor->stopping = true;
+
+    return 0;
+}
+
+int
 executor_run_commands(struct executor *executor, struct executor_command *commands)
 {
     if (executor->thr)
@@ -60,7 +70,7 @@ executor_run_commands(struct executor *executor, struct executor_command *comman
 }
 
 int
-executor_wait_for_commands_to_finish(struct executor *executor, bool force_quit)
+executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
 {
     if (!executor->thr)
         return 1;

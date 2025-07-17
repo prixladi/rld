@@ -154,7 +154,7 @@ watcher_start(struct watcher *watcher)
 int
 watcher_signal_stop(struct watcher *watcher)
 {
-    log_info("(watcher) Stopping\n");
+    log_info("(watcher) Signal stopping\n");
 
     watcher->stoped = true;
     pthread_cond_broadcast(watcher->cond);
