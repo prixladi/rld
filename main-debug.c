@@ -1,10 +1,10 @@
 #include <stdlib.h>
 
-#include "src/lib/rld.h"
-#include "src/lib/helpers.h"
+#include "lib/rld.h"
+#include "lib/helpers.h"
 
-#include "src/lib/utils/string.h"
-#include "src/lib/utils/vector.h"
+#include "lib/utils/string.h"
+#include "lib/utils/vector.h"
 
 __MAIN
 

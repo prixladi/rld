@@ -18,6 +18,70 @@ BOLD_MAGENTA="\e[1;35m"
 
 RLD_DIR=".rld"
 
+MAIN=$(cat <<EOF
+#include <stdlib.h>
+
+#include <rld/rld.h>
+#include <rld/helpers.h>
+
+#include <rld/utils/string.h>
+#include <rld/utils/vector.h>
+
+__MAIN
+
+int
+config_init(struct context *context, struct config *config)
+{
+}
+
+struct command *
+commands_create(struct changes_context *changes_context, struct context *context)
+{
+}
+
+void
+commands_free(struct command *commands, struct context *context)
+{
+}
+
+bool
+should_include_dir(char *dir, struct context *context)
+{
+}
+
+bool
+should_include_file_change(char *dir, char *file_name, struct context *context)
+{
+}
+
+void
+config_free(struct config* config, struct context *context)
+{
+}
+EOF
+)
+
+GITIGNORE=$(cat <<EOF
+.bin
+EOF
+)
+
+MAKEFILE=$(cat <<EOF
+CC=gcc
+FLAGS = -W -std=c99 -D_POSIX_C_SOURCE=200112L -D_XOPEN_SOURCE=600 -O2
+
+.PHONY: build
+
+setup: 
+	mkdir -p .bin
+
+build: setup
+	\$(CC) \$(FLAGS) main.c -o ./.bin/rld -lrld
+EOF
+)
+
+# -------------------------------------------------------------------------------------------------------------------------- #
+
 ensure_rld_exists () {
     if [ ! -d "./$RLD_DIR" ] || [ -z "$( ls -A "./$RLD_DIR" )" ]; then
         echo "Rld is not initialized in the current directory, the '$RLD_DIR' directory does exists or it is empty!"
@@ -36,19 +100,9 @@ ensure_rld_does_not_exist () {
 
 rld_initialize () {
     mkdir -p $RLD_DIR
-    
-    cd $RLD_DIR
-    
-    #<<<SRC_ARCHIVE>>>
-    
-    echo $SRC_ARCHIVE | base64 -d > "./src.tar"
-    
-    tar -xvf "./src.tar" > /dev/null
-    mv .gitignore.template .gitignore
-    
-    rm "./src.tar"
-    
-    cd ..
+    echo "$MAIN" > ./$RLD_DIR/main.c
+    echo "$GITIGNORE" > ./$RLD_DIR/.gitignore
+    echo "$MAKEFILE" > ./$RLD_DIR/Makefile
 }
 
 rld_run () {
@@ -56,19 +110,6 @@ rld_run () {
     make build
     cd ..
     $RLD_DIR/.bin/rld "$@"
-}
-
-rld_update () {
-    if [ ! -f "./$RLD_DIR/main.c" ]; then
-        echo "Main.c does not exist in '$RLD_DIR'"
-        exit 10;
-    fi
-    
-    mv ./$RLD_DIR/main.c ./$RLD_DIR/main-backup.c
-    rm -rf ./$RLD_DIR/lib ./$RLD_DIR/Makefile ./$RLD_DIR/.gitignore
-    
-    rld_initialize
-    mv ./$RLD_DIR/main-backup.c ./$RLD_DIR/main.c
 }
 
 # -------------------------------------------------------------------------------------------------------------------------- #
@@ -83,11 +124,6 @@ case $1 in
     "run")
         ensure_rld_exists
         rld_run "${@:2}"
-    ;;
-    
-    "update")
-        ensure_rld_exists
-        rld_update "${@:2}"
     ;;
     
     *)
