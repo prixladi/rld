@@ -44,8 +44,8 @@ commands_create(struct changes_context *changes_context, struct context *context
 
     struct command *commands = vec_create_prealloc(struct command, 5);
 
-    struct command build_command = { .name = "build", .exec = build_exec, .work_dir = "./run" };
-    struct command run_command = { .name = "execute", .exec = run_exec, .work_dir = "./run" };
+    struct command build_command = { .name = "build", .exec = build_exec, .work_dir = "./run", 0 };
+    struct command run_command = { .name = "execute", .exec = run_exec, .work_dir = "./run", .no_interrupt = false };
 
     vec_push(commands, build_command);
     vec_push(commands, run_command);

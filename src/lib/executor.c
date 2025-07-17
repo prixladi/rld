@@ -60,7 +60,7 @@ executor_run_commands(struct executor *executor, struct executor_command *comman
 }
 
 int
-executor_wait_for_commands_to_finish(struct executor *executor)
+executor_wait_for_commands_to_finish(struct executor *executor, bool force_quit)
 {
     if (!executor->thr)
         return 1;
@@ -71,7 +71,7 @@ executor_wait_for_commands_to_finish(struct executor *executor)
 
     vec_for_each2(struct executor_command, command, executor->commands)
     {
-        if (command->pid && !command->no_interrupt)
+        if (command->pid && (!command->no_interrupt || force_quit))
             process_kill(command->pid);
     }
 
@@ -130,10 +130,7 @@ execute(void *data)
         struct executor_command *command = &executor->commands[i];
 
         if (executor->stopping)
-        {
-            pthread_mutex_unlock(executor->lock);
-            return NULL;
-        }
+            break;
 
         scoped char *command_desc = str_printf("%s (%ld/%ld)", command->name, i + 1, vec_length(executor->commands));
 
@@ -148,21 +145,18 @@ execute(void *data)
         pthread_mutex_lock(executor->lock);
         command->pid = 0;
 
-        if (executor->stopping)
-        {
-            pthread_mutex_unlock(executor->lock);
+        if (executor->stopping && !command->no_interrupt)
             log_info("(executor) Command '%s' interupted\n", command_desc);
-            return NULL;
+        else
+        {
+            if (status_code != 0)
+                log_error("(executor) Command '%s' exited with error status code %d\n", command_desc, status_code);
+            else
+                log_info("(executor) Command '%s' completed successfully \n", command_desc);
         }
 
-        if (status_code != 0)
-        {
-            pthread_mutex_unlock(executor->lock);
-            log_error("(executor) Command '%s' exited with error status code %d\n", command_desc, status_code);
-            return NULL;
-        }
-        else
-            log_info("(executor) Command '%s' completed successfully \n", command_desc);
+        if (status_code != 0 || executor->stopping)
+            break;
     }
 
     pthread_mutex_unlock(executor->lock);

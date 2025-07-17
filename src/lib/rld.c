@@ -118,7 +118,7 @@ app(int argc, char **argv)
         log_critical("Broken out of the main application loop without global 'stopping' flag set to true");
 
     watcher_wait_for_stop(watcher);
-    executor_wait_for_commands_to_finish(executor);
+    executor_wait_for_commands_to_finish(executor, true);
 
 watcher_free:
     watcher_free(watcher);
@@ -161,7 +161,7 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
             watcher_free_event_batch(batch);
         }
 
-        executor_wait_for_commands_to_finish(executor);
+        executor_wait_for_commands_to_finish(executor, false);
 
         struct command *commands = commands_create(&changes_context, context);
         changes_context_free(changes_context);

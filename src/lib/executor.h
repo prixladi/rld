@@ -18,7 +18,7 @@ struct executor_command
 struct executor *executor_create();
 
 int executor_run_commands(struct executor *executor, struct executor_command *commands);
-int executor_wait_for_commands_to_finish(struct executor *executor);
+int executor_wait_for_commands_to_finish(struct executor *executor, bool force_quit);
 
 int executor_free(struct executor *executor);
 
