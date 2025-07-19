@@ -5,12 +5,20 @@
 
 struct executor;
 
+struct executor_command_env
+{
+    char *key;
+    char *value;
+    bool no_override;
+};
+
 struct executor_command
 {
     char *name;
     char **exec;
     char *work_dir;
-    bool no_interrupt; 
+    struct executor_command_env *env;
+    bool no_interrupt;
 
     pid_t pid;
 };

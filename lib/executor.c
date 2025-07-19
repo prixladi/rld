@@ -23,7 +23,8 @@ struct executor
 };
 
 static void *execute(void *data);
-static int process_start(char **command, char *work_dir);
+
+static int process_start(char **command, char *work_dir, struct executor_command_env *env);
 static int process_wait(pid_t pid);
 static int process_kill(int pid);
 
@@ -93,10 +94,22 @@ executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
     {
         vec_for_each(command->exec, free);
         vec_free(command->exec);
+
+        vec_for_each2(struct executor_command_env, e, command->env)
+        {
+            free(e->key);
+            free(e->value);
+
+            e->key = NULL;
+            e->value = NULL;
+        }
+        vec_free(command->env);
+
         free(command->name);
         free(command->work_dir);
 
         command->exec = NULL;
+        command->env = NULL;
         command->name = NULL;
         command->work_dir = NULL;
     }
@@ -145,7 +158,7 @@ execute(void *data)
         scoped char *command_desc = str_printf("%s (%ld/%ld)", command->name, i + 1, vec_length(executor->commands));
 
         log_info("(executor) Starting command: '%s'\n", command_desc);
-        pid_t pid = process_start(command->exec, command->work_dir);
+        pid_t pid = process_start(command->exec, command->work_dir, command->env);
         command->pid = pid;
 
         pthread_mutex_unlock(executor->lock);
@@ -175,24 +188,32 @@ execute(void *data)
 }
 
 static int
-process_start(char **command, char *work_dir)
+process_start(char **command, char *work_dir, struct executor_command_env *env)
 {
     pid_t pid = fork();
-    if (pid == 0)
+    if (pid != 0)
+        return pid;
+
+    int current_pid = getpid();
+
+    log_debug("(executor) Starting process '%s - %d'\n", command[0], current_pid);
+
+    if (env != NULL)
     {
-        int current_pid = getpid();
-
-        log_debug("(executor) Starting process '%s - %d'\n", command[0], current_pid);
-
-        if (work_dir)
-            chdir(work_dir);
-        execvp(command[0], command);
-
-        log_critical("(executor) Unable to execute command '%s' with pid %d, aborting\n", command[0], current_pid);
-        _exit(123);
+        vec_for_each2(struct executor_command_env, e, env)
+        {
+            if (e->no_override && getenv(e->key))
+                continue;
+            setenv(e->key, e->value, 1);
+        }
     }
 
-    return pid;
+    if (work_dir)
+        chdir(work_dir);
+    execvp(command[0], command);
+
+    log_critical("(executor) Unable to execute command '%s' with pid %d, aborting\n", command[0], current_pid);
+    _exit(123);
 }
 
 static int

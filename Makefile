@@ -1,5 +1,5 @@
 CC=gcc
-FLAGS = -D_GNU_SOURCE -D_POSIX_C_SOURCE=200112L -W -Wall -pedantic -Werror -std=c99 -Wno-gnu-auto-type
+FLAGS = -D_GNU_SOURCE -D_POSIX_C_SOURCE=200112L -W -Wall -pedantic -Werror -std=c99
 SOURCES = main-debug.c lib/*.c lib/utils/*.c 
 HEADERS = lib/*.h lib/utils/*.h 
 

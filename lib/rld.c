@@ -186,7 +186,6 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
         struct executor_command *executor_commands = vec_create_prealloc(struct executor_command, vec_length(commands));
         vec_for_each2(struct command, command, commands)
         {
-            // + 1 is for NULL terminator
             char **exec = vec_create_prealloc(char *, vec_length(command->exec) + 1);
             vec_for_each2(char *, e, command->exec)
             {
@@ -195,10 +194,24 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
             }
             vec_push(exec, NULL);
 
+            struct executor_command_env *env =
+                vec_create_prealloc(struct executor_command_env, command->env ? vec_length(command->env) : 0);
+            if (command->env != NULL)
+            {
+                vec_for_each2(struct command_env, e, command->env)
+                {
+                    struct executor_command_env ce = { .key = str_dup(e->key),
+                                                       .value = str_dup(e->value),
+                                                       .no_override = e->no_override };
+                    vec_push(env, ce);
+                }
+            }
+
             struct executor_command ec = { .name = str_dup(command->name),
                                            .exec = exec,
                                            .work_dir = str_dup(command->work_dir),
                                            .no_interrupt = command->no_interrupt,
+                                           .env = env,
                                            .pid = 0 };
             vec_push(executor_commands, ec);
         }

@@ -30,28 +30,26 @@ commands_create(struct changes_context *changes_context, struct context *context
     (void)changes_context;
     (void)context;
 
-    struct command *commands = vec_create_prealloc(struct command, 5);
+    struct command *commands = vec_create_prealloc(struct command, 2);
 
     char **build_exec = vec_create_prealloc(char *, 4);
     vec_push(build_exec, "gcc");
     vec_push(build_exec, "./main.c");
     vec_push(build_exec, "-o");
     vec_push(build_exec, "./run.out");
-    struct command build_command = { .name = "build", .exec = build_exec, .work_dir = "./run", 0 };
+    struct command build_command = { .name = "build", .exec = build_exec, .work_dir = "./run" };
     vec_push(commands, build_command);
 
     char **run_exec = vec_create_prealloc(char *, 2);
     vec_push(run_exec, "./run.out");
     vec_push(run_exec, "rld");
-    struct command run_command = { .name = "execute", .exec = run_exec, .work_dir = "./run", .no_interrupt = false };
+    struct command_env *env = vec_create_prealloc(struct command_env, 1);
+    struct command_env e = { .key = "env", .value = "debug", .no_override = true };
+    vec_push(env, e);
+    struct command run_command = {
+        .name = "execute", .exec = run_exec, .work_dir = "./run", .no_interrupt = false, .env = env
+    };
     vec_push(commands, run_command);
-
-
-    char **run_exec2 = vec_create_prealloc(char *, 2);
-    vec_push(run_exec2, "./run.out");
-    vec_push(run_exec2, "rld");
-    struct command run_command2 = { .name = "execute", .exec = run_exec2, .work_dir = "./run", .no_interrupt = false };
-    vec_push(commands, run_command2);
 
     return commands;
 }
@@ -64,7 +62,10 @@ commands_free(struct command *commands, struct context *context)
     vec_for_each2(struct command, command, commands)
     {
         vec_free(command->exec);
+        vec_free(command->env);
+
         command->exec = NULL;
+        command->env = NULL;
     }
 
     vec_free(commands);
@@ -74,12 +75,12 @@ bool
 should_include_dir(char *dir, struct context *context)
 {
     (void)context;
-    
+
     return !path_contains_subpath(dir, "run2", true);
 }
 
 bool
-should_include_file_change(char *dir ,char *file_name, struct context *context)
+should_include_file_change(char *dir, char *file_name, struct context *context)
 {
     (void)dir;
     (void)context;
@@ -88,7 +89,7 @@ should_include_file_change(char *dir ,char *file_name, struct context *context)
 }
 
 void
-config_free(struct config* config, struct context *context)
+config_free(struct config *config, struct context *context)
 {
     (void)context;
 

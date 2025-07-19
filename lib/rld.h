@@ -59,11 +59,19 @@ struct changes_context
     bool is_first_run;
 };
 
+struct command_env
+{
+    char *key;
+    char *value;
+    bool no_override;
+};
+
 struct command
 {
     char *name;
     char **exec;
     char *work_dir;
+    struct command_env *env;
     bool no_interrupt;
 };
 
