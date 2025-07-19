@@ -6,15 +6,23 @@
 #include <sys/wait.h>
 
 #include "executor.h"
+#include "rld.h"
 
 #include "utils/memory.h"
 #include "utils/log.h"
 #include "utils/vector.h"
 #include "utils/time.h"
 
+struct executor_command
+{
+    struct command *desc;
+    pid_t pid;
+};
+
 struct executor
 {
     struct executor_command *commands;
+    struct command *commands_src;
 
     pthread_t thr;
     bool stopping;
@@ -24,7 +32,7 @@ struct executor
 
 static void *execute(void *data);
 
-static int process_start(char **command, char *work_dir, struct executor_command_env *env);
+static int process_start(char **command, char *work_dir, struct command_env *env);
 static int process_wait(pid_t pid);
 static int process_kill(int pid);
 
@@ -55,7 +63,7 @@ executor_signal_stop(struct executor *executor)
 }
 
 int
-executor_run_commands(struct executor *executor, struct executor_command *commands)
+executor_run_commands(struct executor *executor, struct command *commands_src)
 {
     if (executor->thr)
     {
@@ -63,18 +71,26 @@ executor_run_commands(struct executor *executor, struct executor_command *comman
         return 1;
     }
 
+    struct executor_command *commands = vec_create_prealloc(struct executor_command, vec_length(commands_src));
+    vec_for_each2(struct command, c, commands_src)
+    {
+        struct executor_command ec = { .desc = c, .pid = 0 };
+        vec_push(commands, ec);
+    }
+
     executor->commands = commands;
+    executor->commands_src = commands_src;
     pthread_t executor_thr;
     pthread_create(&executor_thr, NULL, execute, (void *)executor);
     executor->thr = executor_thr;
     return 0;
 }
 
-int
+struct command *
 executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
 {
     if (!executor->thr)
-        return 1;
+        return NULL;
 
     pthread_mutex_lock(executor->lock);
 
@@ -82,7 +98,7 @@ executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
 
     vec_for_each2(struct executor_command, command, executor->commands)
     {
-        if (command->pid && (!command->no_interrupt || force_quit))
+        if (command->pid && (!command->desc->no_interrupt || force_quit))
             process_kill(command->pid);
     }
 
@@ -90,36 +106,21 @@ executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
 
     pthread_join(executor->thr, NULL);
 
-    vec_for_each2(struct executor_command, command, executor->commands)
-    {
-        vec_for_each(command->exec, free);
-        vec_free(command->exec);
-
-        vec_for_each2(struct executor_command_env, e, command->env)
-        {
-            free(e->key);
-            free(e->value);
-
-            e->key = NULL;
-            e->value = NULL;
-        }
-        vec_free(command->env);
-
-        free(command->name);
-        free(command->work_dir);
-
-        command->exec = NULL;
-        command->env = NULL;
-        command->name = NULL;
-        command->work_dir = NULL;
-    }
-    vec_free(executor->commands);
-    executor->commands = NULL;
+    pthread_mutex_lock(executor->lock);
 
     executor->stopping = false;
     executor->thr = 0;
+    
+    vec_free(executor->commands);
 
-    return 0;
+    struct command *commands_src = executor->commands_src;
+
+    executor->commands = NULL;
+    executor->commands_src = NULL;
+
+    pthread_mutex_unlock(executor->lock);
+
+    return commands_src;
 }
 
 int
@@ -155,10 +156,10 @@ execute(void *data)
         if (executor->stopping)
             break;
 
-        scoped char *command_desc = str_printf("%s (%ld/%ld)", command->name, i + 1, vec_length(executor->commands));
+        scoped char *command_fmt = str_printf("%s (%ld/%ld)", command->desc->name, i + 1, vec_length(executor->commands));
 
-        log_info("(executor) Starting command: '%s'\n", command_desc);
-        pid_t pid = process_start(command->exec, command->work_dir, command->env);
+        log_info("(executor) Starting command: '%s'\n", command_fmt);
+        pid_t pid = process_start(command->desc->exec, command->desc->work_dir, command->desc->env);
         command->pid = pid;
 
         pthread_mutex_unlock(executor->lock);
@@ -168,14 +169,14 @@ execute(void *data)
         pthread_mutex_lock(executor->lock);
         command->pid = 0;
 
-        if (executor->stopping && !command->no_interrupt)
-            log_info("(executor) Command '%s' interupted\n", command_desc);
+        if (executor->stopping && !command->desc->no_interrupt)
+            log_info("(executor) Command '%s' interupted\n", command_fmt);
         else
         {
             if (status_code != 0)
-                log_error("(executor) Command '%s' exited with error status code %d\n", command_desc, status_code);
+                log_error("(executor) Command '%s' exited with error status code %d\n", command_fmt, status_code);
             else
-                log_info("(executor) Command '%s' completed successfully \n", command_desc);
+                log_info("(executor) Command '%s' completed successfully \n", command_fmt);
         }
 
         if (status_code != 0 || executor->stopping)
@@ -188,7 +189,7 @@ execute(void *data)
 }
 
 static int
-process_start(char **command, char *work_dir, struct executor_command_env *env)
+process_start(char **command, char *work_dir, struct command_env *env)
 {
     pid_t pid = fork();
     if (pid != 0)
@@ -200,7 +201,7 @@ process_start(char **command, char *work_dir, struct executor_command_env *env)
 
     if (env != NULL)
     {
-        vec_for_each2(struct executor_command_env, e, env)
+        vec_for_each2(struct command_env, e, env)
         {
             if (e->no_override && getenv(e->key))
                 continue;

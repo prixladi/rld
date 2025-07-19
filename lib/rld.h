@@ -5,12 +5,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define __MAIN \
+#define __RLD_MAIN \
     int main(int argc, char **argv) \
     { \
-        app(argc, argv); \
+        rld(argc, argv); \
     }
-int app(int argc, char **argv);
+int rld(int argc, char **argv);
 
 struct changed_file
 {

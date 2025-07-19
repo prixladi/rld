@@ -37,7 +37,7 @@ struct executor *executor_g = NULL;
 bool stopping_g = false;
 
 int
-app(int argc, char **argv)
+rld(int argc, char **argv)
 {
     int exit_code = 0;
 
@@ -120,7 +120,9 @@ app(int argc, char **argv)
         log_critical("Broken out of the main application loop without global 'stopping' flag set to true");
 
     watcher_wait_for_stop(watcher);
-    executor_stop_commands_and_wait(executor, true);
+    struct command *old_commands = executor_stop_commands_and_wait(executor, true);
+    if (old_commands)
+        commands_free(old_commands, &context);
 
 watcher_free:
     watcher_free(watcher);
@@ -178,46 +180,14 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
             watcher_free_event_batch(batch);
         }
 
-        executor_stop_commands_and_wait(executor, false);
+        struct command *old_commands = executor_stop_commands_and_wait(executor, false);
+        if (old_commands)
+            commands_free(old_commands, context);
 
         struct command *commands = commands_create(&changes_context, context);
         changes_context_free(changes_context);
 
-        struct executor_command *executor_commands = vec_create_prealloc(struct executor_command, vec_length(commands));
-        vec_for_each2(struct command, command, commands)
-        {
-            char **exec = vec_create_prealloc(char *, vec_length(command->exec) + 1);
-            vec_for_each2(char *, e, command->exec)
-            {
-                char *c = str_dup(*e);
-                vec_push(exec, c);
-            }
-            vec_push(exec, NULL);
-
-            struct executor_command_env *env =
-                vec_create_prealloc(struct executor_command_env, command->env ? vec_length(command->env) : 0);
-            if (command->env != NULL)
-            {
-                vec_for_each2(struct command_env, e, command->env)
-                {
-                    struct executor_command_env ce = { .key = str_dup(e->key),
-                                                       .value = str_dup(e->value),
-                                                       .no_override = e->no_override };
-                    vec_push(env, ce);
-                }
-            }
-
-            struct executor_command ec = { .name = str_dup(command->name),
-                                           .exec = exec,
-                                           .work_dir = str_dup(command->work_dir),
-                                           .no_interrupt = command->no_interrupt,
-                                           .env = env,
-                                           .pid = 0 };
-            vec_push(executor_commands, ec);
-        }
-        commands_free(commands, context);
-
-        executor_run_commands(executor, executor_commands);
+        executor_run_commands(executor, commands);
     }
 }
 

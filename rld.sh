@@ -27,7 +27,7 @@ MAIN=$(cat <<EOF
 #include <rld/utils/string.h>
 #include <rld/utils/vector.h>
 
-__MAIN
+__RLD_MAIN
 
 int
 config_init(struct context *context, struct config *config)

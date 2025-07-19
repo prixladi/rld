@@ -6,7 +6,7 @@
 #include "lib/utils/string.h"
 #include "lib/utils/vector.h"
 
-__MAIN
+__RLD_MAIN
 
 int
 config_init(struct context *context, struct config *config)
