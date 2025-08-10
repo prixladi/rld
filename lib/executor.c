@@ -110,7 +110,7 @@ executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
 
     executor->stopping = false;
     executor->thr = 0;
-    
+
     vec_free(executor->commands);
 
     struct command *commands_src = executor->commands_src;
@@ -159,7 +159,11 @@ execute(void *data)
         scoped char *command_fmt = str_printf("%s (%ld/%ld)", command->desc->name, i + 1, vec_length(executor->commands));
 
         log_info("(executor) Starting command: '%s'\n", command_fmt);
-        pid_t pid = process_start(command->desc->exec, command->desc->work_dir, command->desc->env);
+
+        vec_scoped char **command_exec = vec_dup(command->desc->exec);
+        vec_push(command_exec, NULL);
+
+        pid_t pid = process_start(command_exec, command->desc->work_dir, command->desc->env);
         command->pid = pid;
 
         pthread_mutex_unlock(executor->lock);
@@ -169,17 +173,34 @@ execute(void *data)
         pthread_mutex_lock(executor->lock);
         command->pid = 0;
 
+        bool error_exit = false;
+
         if (executor->stopping && !command->desc->no_interrupt)
             log_info("(executor) Command '%s' interupted\n", command_fmt);
         else
         {
-            if (status_code != 0)
-                log_error("(executor) Command '%s' exited with error status code %d\n", command_fmt, status_code);
+            if (WIFEXITED(status_code))
+            {
+                int exit_code = WEXITSTATUS(status_code);
+                error_exit = status_code != 0;
+
+                if (status_code != 0)
+                    log_error("(executor) Command '%s' exited with error status code %d\n", command_fmt, exit_code);
+                else
+                    log_info("(executor) Command '%s' completed successfully \n", command_fmt);
+            }
+            else if (WIFSIGNALED(status_code))
+            {
+                error_exit = true;
+                log_error("(executor) Command '%s' terminated by signal %d\n", command_fmt, WTERMSIG(status_code));
+            }
             else
-                log_info("(executor) Command '%s' completed successfully \n", command_fmt);
+            {
+                log_error("(executor) Command '%s' did not exit normally, %d\n", command_fmt, status_code);
+            }
         }
 
-        if (status_code != 0 || executor->stopping)
+        if (error_exit || executor->stopping)
             break;
     }
 
@@ -196,6 +217,12 @@ process_start(char **command, char *work_dir, struct command_env *env)
         return pid;
 
     int current_pid = getpid();
+
+    if (setsid() == -1)
+    {
+        log_critical("(executor) Unable to set sid for command '%s' with pid %d, aborting\n", command[0], current_pid);
+        _exit(123);
+    }
 
     log_debug("(executor) Starting process '%s - %d'\n", command[0], current_pid);
 
@@ -221,8 +248,13 @@ static int
 process_wait(pid_t pid)
 {
     int status;
-    waitpid(pid, &status, 0);
-    return WEXITSTATUS(status);
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        perror("Waiting for child");
+        return -1;
+    }
+
+    return status;
 }
 
 static int
@@ -235,7 +267,7 @@ process_kill(int pid)
     while (attempt < 700 && kill(pid, 0) == 0)
     {
         if (attempt % 100 == 0)
-            if (!kill(pid, attempt >= 500 ? SIGKILL : SIGTERM))
+            if (!killpg(pid, attempt >= 500 ? SIGKILL : SIGTERM))
                 break;
 
         if (attempt)

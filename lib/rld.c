@@ -41,7 +41,10 @@ rld(int argc, char **argv)
 {
     int exit_code = 0;
 
+    setvbuf(stdout, NULL, _IOLBF, 1024);
+
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGCHLD, SIG_DFL);
 
     signal(SIGTERM, graceful_stop_handler);
     signal(SIGINT, graceful_stop_handler);
@@ -68,7 +71,7 @@ rld(int argc, char **argv)
     struct context context = { .version = 0, .args = args };
 
     struct config config = { 0 };
-    if (config_init(&context, &config) != 0)
+    if (config_init(&config, &context) != 0)
     {
         log_critical("Unable to init config.\n");
         exit_code = 101;

@@ -9,7 +9,7 @@
 __RLD_MAIN
 
 int
-config_init(struct context *context, struct config *config)
+config_init(struct config *config, struct context *context)
 {
     (void)context;
 

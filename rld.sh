@@ -30,7 +30,7 @@ MAIN=$(cat <<EOF
 __RLD_MAIN
 
 int
-config_init(struct context *context, struct config *config)
+config_init(struct config *config, struct context *context)
 {
 }
 
@@ -109,7 +109,11 @@ rld_run () {
     cd $RLD_DIR
     make build
     cd ..
-    $RLD_DIR/.bin/rld "$@"
+    $RLD_DIR/.bin/rld "$@" &
+    rld_pid=$!
+
+    trap 'kill -TERM "$rld_pid"' EXIT
+    wait $rld_pid
 }
 
 # -------------------------------------------------------------------------------------------------------------------------- #
