@@ -84,19 +84,36 @@ EOF
 
 ensure_rld_exists () {
     if [ ! -d "./$RLD_DIR" ] || [ -z "$( ls -A "./$RLD_DIR" )" ]; then
-        echo "Rld is not initialized in the current directory, the '$RLD_DIR' directory does exists or it is empty!"
+        echo "ERROR: Rld is not initialized in the current directory, the '$RLD_DIR' directory does exists or it is empty!"
         exit 4;
     fi
 }
 
 ensure_rld_does_not_exist () {
     if [ -d "./$RLD_DIR" ] && [ ! -z "$( ls -A "./$RLD_DIR" )" ]; then
-        echo "Rld is already initialized in the current directory, the '$RLD_DIR' directory exists and it is not empty!"
+        echo "ERROR: Rld is already initialized in the current directory, the '$RLD_DIR' directory exists and it is not empty!"
         exit 9;
     fi
 }
 
 # -------------------------------------------------------------------------------------------------------------------------- #
+
+
+rld_help () {
+    echo "Usage: $0 <command> [run_arguments]";
+    echo "COMMANDS"
+    echo "  Help"    
+    echo "      * print help"
+    echo "  Init"    
+    echo "      * initialize rld in current directory"
+    echo "      * this will fail if rld is already initialized in current directory"
+    echo "      * initialization will create $RLD_DIR directory"
+    echo "  Run"     
+    echo "     * run rld in current directory"
+    echo "      * this will fail if rld is not initialized in current directory"
+    echo "     * accepts additional arguments that will be passed to rld application"
+    echo "     * run '$0 run --help' to get help from rld instance in current directory"
+}
 
 rld_initialize () {
     mkdir -p $RLD_DIR
@@ -118,6 +135,14 @@ rld_run () {
 
 # -------------------------------------------------------------------------------------------------------------------------- #
 
+
+if [ $# -eq 0 ]
+  then
+    rld_help
+    echo "ERROR: No commands supplied"
+    exit 126
+fi
+
 case $1 in
     
     "init")
@@ -129,9 +154,14 @@ case $1 in
         ensure_rld_exists
         rld_run "${@:2}"
     ;;
+
+    "help")
+        rld_help "${@}"
+    ;;
     
     *)
-        echo "Command $1 is invalid"
+        rld_help
+        echo "ERROR: Command $1 is invalid"
         exit 126
     ;;
 esac
