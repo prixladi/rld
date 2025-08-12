@@ -142,6 +142,9 @@ exit:
 static void
 graceful_stop_handler(int signal)
 {
+    if (stopping_g)
+        return;
+        
     (void)signal;
     // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
     write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
