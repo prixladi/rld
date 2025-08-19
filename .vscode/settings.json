@@ -46,6 +46,11 @@
         "utility": "c",
         "helpers.h": "c",
         "rld.h": "c",
-        "numbers": "c"
+        "numbers": "c",
+        "compare": "c",
+        "concepts": "c",
+        "cmath": "c",
+        "limits": "c",
+        "new": "c"
     }
 }

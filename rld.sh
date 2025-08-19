@@ -26,6 +26,7 @@ MAIN=$(cat <<EOF
 
 #include <rld/utils/string.h>
 #include <rld/utils/vector.h>
+#include <rld/utils/log.h>
 
 __RLD_MAIN
 
@@ -77,6 +78,10 @@ setup:
 
 build: setup
 	\$(CC) \$(FLAGS) main.c -o ./.bin/rld -lrld
+
+build_debug: FLAGS += -fsanitize=undefined,address -g -D __DEBUG__    
+build_debug: setup
+	\$(CC) \$(FLAGS) main.c -o ./.bin/rld -lrld
 EOF
 )
 
@@ -96,23 +101,32 @@ ensure_rld_does_not_exist () {
     fi
 }
 
-# -------------------------------------------------------------------------------------------------------------------------- #
+run_and_wait () {
+    $RLD_DIR/.bin/rld "$@" &
+    rld_pid=$!
 
+    trap 'kill -TERM "$rld_pid" 2> /dev/null' EXIT
+    wait $rld_pid
+}
+
+# -------------------------------------------------------------------------------------------------------------------------- #
 
 rld_help () {
     echo "Usage: $0 <command> [run_arguments]";
     echo "COMMANDS"
-    echo "  Help"    
+    echo "  help"    
     echo "      * print help"
-    echo "  Init"    
+    echo "  init"    
     echo "      * initialize rld in current directory"
     echo "      * this will fail if rld is already initialized in current directory"
     echo "      * initialization will create $RLD_DIR directory"
-    echo "  Run"     
-    echo "     * run rld in current directory"
-    echo "      * this will fail if rld is not initialized in current directory"
+    echo "  run"     
+    echo "     * build and run rld in current directory"
+    echo "     * this will fail if rld is not initialized in current directory"
     echo "     * accepts additional arguments that will be passed to rld application"
     echo "     * run '$0 run --help' to get help from rld instance in current directory"
+    echo "  debug"     
+    echo "     * same as run but builds binary with AddressSanitizer to help you debug crashes and memory leaks"
 }
 
 rld_initialize () {
@@ -126,12 +140,16 @@ rld_run () {
     cd $RLD_DIR
     make build
     cd ..
-    $RLD_DIR/.bin/rld "$@" &
-    rld_pid=$!
-
-    trap 'kill -TERM "$rld_pid"' EXIT
-    wait $rld_pid
+    run_and_wait "${@}"
 }
+
+rld_debug () {
+    cd $RLD_DIR
+    make build_debug
+    cd ..
+    run_and_wait "${@}"
+}
+
 
 # -------------------------------------------------------------------------------------------------------------------------- #
 
@@ -152,7 +170,12 @@ case $1 in
     
     "run")
         ensure_rld_exists
-        rld_run "${@:2}"
+        rld_run
+    ;;
+
+    "debug")
+        ensure_rld_exists
+        rld_debug "${@:2}"
     ;;
 
     "help")

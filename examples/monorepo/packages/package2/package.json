@@ -1,0 +1,12 @@
+{
+  "name": "package2",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "prebuild": "mkdir -p out",
+    "build": "cp ./index.js ./out/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

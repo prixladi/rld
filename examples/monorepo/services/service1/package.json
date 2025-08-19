@@ -1,0 +1,14 @@
+{
+  "name": "service1",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type":"module",
+  "scripts": {
+    "prebuild": "mkdir -p out",
+    "build": "cp ./index.js ./out/index.js",
+    "start": "node ./out/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
