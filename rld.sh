@@ -170,7 +170,7 @@ case $1 in
     
     "run")
         ensure_rld_exists
-        rld_run
+        rld_run "${@:2}"
     ;;
 
     "debug")
@@ -183,7 +183,7 @@ case $1 in
     ;;
     
     *)
-        rld_help
+        rld_help "${@}"
         echo "ERROR: Command $1 is invalid"
         exit 126
     ;;
