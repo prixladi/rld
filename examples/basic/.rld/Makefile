@@ -8,3 +8,7 @@ setup:
 
 build: setup
 	$(CC) $(FLAGS) main.c -o ./.bin/rld -lrld
+
+build_debug: FLAGS += -fsanitize=undefined,address -g -D __DEBUG__    
+build_debug: setup
+	\$(CC) \$(FLAGS) main.c -o ./.bin/rld -lrld

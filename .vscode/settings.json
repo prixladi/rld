@@ -51,6 +51,7 @@
         "concepts": "c",
         "cmath": "c",
         "limits": "c",
-        "new": "c"
+        "new": "c",
+        "stddef.h": "c"
     }
 }

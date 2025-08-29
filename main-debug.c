@@ -24,6 +24,15 @@ config_init(struct config *config, struct context *context)
     return 0;
 }
 
+void
+config_free(struct config *config, struct context *context)
+{
+    (void)context;
+
+    vec_free(config->watch_paths);
+    config->watch_paths = NULL;
+}
+
 struct command *
 commands_create(struct changes_context *changes_context, struct context *context)
 {
@@ -88,11 +97,15 @@ should_include_file_change(char *dir, char *file_name, struct context *context)
     return file_has_extension(file_name, "c");
 }
 
-void
-config_free(struct config *config, struct context *context)
+bool
+print_usage(const char *app_name)
 {
-    (void)context;
+    printf("Usage: %s [options]...\n\
+Rld debug.\n\n\
+Flags:\n\
+    -h, --help            Prints help\n\
+    -v, --verbose         Changes default log level\n",
+           app_name);
 
-    vec_free(config->watch_paths);
-    config->watch_paths = NULL;
+    return true;
 }

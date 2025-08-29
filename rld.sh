@@ -28,35 +28,51 @@ MAIN=$(cat <<EOF
 #include <rld/utils/vector.h>
 #include <rld/utils/log.h>
 
+// Expands to the main function that serves as the entry point of the application
+// It just calls \`int rld(int argc, char **argv)\` and returns its result
+// If you need to do some logic before the \`rld\` is called, you can implement your own main directly
 __RLD_MAIN
 
-int
-config_init(struct config *config, struct context *context)
+// Initialize a application config
+// Returns 0 if the initialization was successful
+int config_init(struct config *config, struct context *context)
 {
 }
 
-struct command *
-commands_create(struct changes_context *changes_context, struct context *context)
+// Cleanup for initialized config
+// If \`config_init\` did not perform any action requiring cleanup, this function can be left empty
+void config_free(struct config *config, struct context *context)
 {
 }
 
-void
-commands_free(struct command *commands, struct context *context)
+// Create array of commands to be executed.
+// It is called with the context of changes in batch, so it can implement specific logic depending on the changed files or directories
+// The array itself needs to be created using the \`vec_create\` function
+struct command *commands_create(struct changes_context *changes_context, struct context *context)
 {
 }
 
-bool
-should_include_dir(char *dir, struct context *context)
+// Cleanup function for array of commands
+// The array itself needs to be freed using \`vec_free\` function
+void commands_free(struct command *commands, struct context *context)
 {
 }
 
-bool
-should_include_file_change(char *dir, char *file_name, struct context *context)
+// Determine whether the application should watch concrete directory
+// It is called every time new directory if found in watched path
+bool should_include_dir(char *dir, struct context *context)
 {
 }
 
-void
-config_free(struct config* config, struct context *context)
+// Determine whether the application should track file concrete file change
+// It is called every time file in tracked directory is create, modified or deleted
+bool should_include_file_change(char *dir, char *file_name, struct context *context)
+{
+}
+
+// Print usage
+// If you want to print default usage return false otherwise return return true
+bool print_usage(const char *app_name)
 {
 }
 EOF
@@ -140,6 +156,7 @@ rld_run () {
     cd $RLD_DIR
     make build
     cd ..
+    export RLD_EXE="rld run" 
     run_and_wait "${@}"
 }
 
@@ -147,6 +164,7 @@ rld_debug () {
     cd $RLD_DIR
     make build_debug
     cd ..
+    export RLD_EXE="rld debug" 
     run_and_wait "${@}"
 }
 

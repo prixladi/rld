@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 #include <sys/types.h>
 #include <sys/inotify.h>
@@ -21,6 +22,7 @@
 
 static void graceful_stop_handler(int signal);
 static void app_loop(struct watcher *watcher, struct executor *executor, struct context *context);
+static void print_default_usage(const char *app_name);
 
 static void changed_file_free(struct changed_file cf);
 static void changes_context_free(struct changes_context cf);
@@ -67,6 +69,19 @@ rld(int argc, char **argv)
         log_init(TRACE);
 
     args_print(&args);
+
+    bool help = args_count_flag(&args, 'h') || args_count_long_flag(&args, "help");
+    if (help)
+    {
+        const char *app_name = getenv("RLD_EXE");
+        if (!app_name)
+            app_name = *argv;
+
+        if (!print_usage(app_name))
+            print_default_usage(app_name);
+
+        goto args_free;
+    }
 
     struct context context = { .version = 0, .args = args };
 
@@ -144,7 +159,7 @@ graceful_stop_handler(int signal)
 {
     if (stopping_g)
         return;
-        
+
     (void)signal;
     // Intentionally not using 'log_*' or 'printf' because it uses non-async-signal-safe functions
     write(STDOUT_FILENO, "[SGN] Received terminate signal, stopping\n", 43);
@@ -195,6 +210,16 @@ app_loop(struct watcher *watcher, struct executor *executor, struct context *con
 
         executor_run_commands(executor, commands);
     }
+}
+
+static void
+print_default_usage(const char *app_name)
+{
+    printf("Usage: %s [options]...\n\
+Options:\n\
+    -h, --help          Prints help\n\
+    -v,                 Prints verbose logs, the more arguments are provided the more verbose they get\n",
+           app_name);
 }
 
 static void

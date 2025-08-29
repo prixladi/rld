@@ -143,3 +143,20 @@ should_include_file_change(char *dir, char *file_name, struct context *context)
 {
     return file_has_extension(file_name, ".js") || file_has_extension(file_name, ".ts");
 }
+
+bool
+print_usage(const char *app_name)
+{
+    printf("Usage: %s <service> [options]...\n\
+Rld monorepo example\n\
+Services: service1, service2, service3\n\
+Options:\n\
+    -h, --help          Prints help\n\
+    -v,                 Prints verbose logs, the more arguments are provided the more verbose they get\n\
+Examples\n\
+    %s service1\n\
+",
+           app_name, app_name);
+
+    return true;
+}

@@ -64,3 +64,15 @@ should_include_file_change(char *dir, char *file_name, struct context *context)
 {
     return file_has_extension(file_name, "c");
 }
+
+bool print_usage(const char *app_name)
+{
+        printf("Usage: %s [options]...\n\
+Rld basic example\n\
+Options:\n\
+    -h, --help          Prints help\n\
+    -v,                 Prints verbose logs, the more arguments are provided the more verbose they get\n",
+           app_name);
+
+    return true;
+}

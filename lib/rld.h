@@ -40,7 +40,7 @@ struct args
 // After the call of `init_config`, this structure will be passed in the context argument to all subsequent calls of interface functions
 struct config
 {
-    // An array of paths that should be watched 
+    // An array of paths that should be watched
     // Needs to be initialized with `vec_create`
     char **watch_paths;
     // Optional work directory
@@ -111,7 +111,7 @@ struct command
 
 // INTERFACE
 
-// Initializes a application config
+// Initialize a application config
 // Returns 0 if the initialization was successful
 int config_init(struct config *config, struct context *context);
 
@@ -119,7 +119,7 @@ int config_init(struct config *config, struct context *context);
 // If `config_init` did not perform any action requiring cleanup, this function can be left empty
 void config_free(struct config *config, struct context *context);
 
-// Creates array of commands to be executed.
+// Create array of commands to be executed.
 // It is called with the context of changes in batch, so it can implement specific logic depending on the changed files or directories
 // The array itself needs to be created using the `vec_create` function
 struct command *commands_create(struct changes_context *changes_context, struct context *context);
@@ -128,12 +128,16 @@ struct command *commands_create(struct changes_context *changes_context, struct 
 // The array itself needs to be freed using `vec_free` function
 void commands_free(struct command *commands, struct context *context);
 
-// Determines whether the application should watch concrete directory
+// Determine whether the application should watch concrete directory
 // It is called every time new directory if found in watched path
 bool should_include_dir(char *dir, struct context *context);
 
-// Determines whether the application should track file concrete file change
+// Determine whether the application should track file concrete file change
 // It is called every time file in tracked directory is create, modified or deleted
 bool should_include_file_change(char *dir, char *file_name, struct context *context);
+
+// Print usage
+// If you want to print default usage return false otherwise return return true
+bool print_usage(const char *app_name);
 
 #endif
