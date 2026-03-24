@@ -5,7 +5,7 @@
 
 #include <sys/types.h>
 #include <sys/inotify.h>
-#include <sys/select.h>
+#include <poll.h>
 
 #include "utils/vector.h"
 #include "utils/memory.h"
@@ -38,6 +38,7 @@ struct watcher
 
     pthread_t thr;
     bool stoped;
+    int pipe_fds[2];
 
     struct hashmap *watched_dirs;
     struct watcher_event_batch event_batch;
@@ -68,6 +69,8 @@ watcher_create(char **root_dirs, bool (*should_include_dir)(char *, void *),
     vec_for_each2(char *, dir, root_dirs) vec_push(r_dirs, str_dup(*dir));
 
     watcher->stoped = true;
+    watcher->pipe_fds[0] = -1;
+    watcher->pipe_fds[1] = -1;
     watcher->root_dirs = r_dirs;
     watcher->should_include_dir = should_include_dir;
     watcher->should_include_file_change = should_include_file_change;
@@ -118,6 +121,11 @@ watcher_free(struct watcher *watcher)
     pthread_mutex_destroy(watcher->lock);
     free(watcher->lock);
 
+    if (watcher->pipe_fds[0] != -1)
+        close(watcher->pipe_fds[0]);
+    if (watcher->pipe_fds[1] != -1)
+        close(watcher->pipe_fds[1]);
+
     watcher->should_include_dir = NULL;
 
     watcher->root_dirs = NULL;
@@ -143,6 +151,12 @@ watcher_start(struct watcher *watcher)
 
     log_info("(watcher) Starting\n");
 
+    if (pipe(watcher->pipe_fds) != 0)
+    {
+        log_critical("(watcher) Unable to create pipe for watcher\n");
+        return 1;
+    }
+
     pthread_t thr;
     watcher->stoped = false;
     pthread_create(&thr, NULL, watcher_start_watching_thr, (void *)watcher);
@@ -158,6 +172,9 @@ watcher_signal_stop(struct watcher *watcher)
 
     watcher->stoped = true;
     pthread_cond_broadcast(watcher->cond);
+
+    char buf = 0;
+    write(watcher->pipe_fds[1], &buf, 1);
 
     return 0;
 }
@@ -247,15 +264,13 @@ watcher_start_watching_thr(void *data)
     char buffer[BUF_LEN];
     for (; !watcher->stoped;)
     {
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(notify_fd, &read_fds);
+        struct pollfd fds[2] = {
+            { .fd = notify_fd, .events = POLLIN },
+            { .fd = watcher->pipe_fds[0], .events = POLLIN },
+        };
 
-        struct timeval timeout = { .tv_sec = 0, .tv_usec = 1000 * 100 };
-
-        // TODO: Use pselect or other fd for instant interruption, this causes delay of the timeout duration on exit
-        int select_status = select(notify_fd + 1, &read_fds, NULL, NULL, &timeout);
-        if (select_status <= 0 || !FD_ISSET(notify_fd, &read_fds) || watcher->stoped)
+        int poll_status = poll(fds, 2, -1);
+        if (poll_status <= 0 || !(fds[0].revents & POLLIN) || watcher->stoped)
             continue;
 
         int length = read(notify_fd, buffer, BUF_LEN);
