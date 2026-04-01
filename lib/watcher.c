@@ -271,7 +271,11 @@ watcher_start_watching_thr(void *data)
 
         int poll_status = poll(fds, 2, -1);
         if (poll_status <= 0 || !(fds[0].revents & POLLIN) || watcher->stoped)
+        {
+            if (poll_status < 0)
+                log_error("Socket server poll returned %d while polling for data from socket.\n", poll_status);
             continue;
+        }
 
         int length = read(notify_fd, buffer, BUF_LEN);
 

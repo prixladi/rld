@@ -917,7 +917,7 @@ xxh3(const void *data, size_t len, uint64_t seed)
 
     if (p + 4 <= end)
     {
-        h64 ^= (uint64_t)(XXH_read32(p))*XXH_PRIME_1;
+        h64 ^= (uint64_t)(XXH_read32(p)) * XXH_PRIME_1;
         h64 = XXH_rotl64(h64, 23) * XXH_PRIME_2 + XXH_PRIME_3;
         p += 4;
     }

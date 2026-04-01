@@ -36,13 +36,13 @@ str_printf(const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    int len = vsnprintf(NULL, 0, format, args);
-    char *buff = malloc(sizeof(char *) * len + 1);
+    int size = vsnprintf(NULL, 0, format, args);
+    char *buff = malloc(size + sizeof(char));
 
     va_end(args);
     va_start(args, format);
 
-    vsnprintf(buff, len + 1, format, args);
+    vsnprintf(buff, size + 1, format, args);
 
     va_end(args);
 
@@ -54,7 +54,7 @@ _str_concat(const char *fst, ...)
 {
     va_list strings;
 
-    int total_len = strlen(fst);
+    int total_len = 0;
     const char *current = fst;
 
     va_start(strings, fst);
@@ -117,7 +117,7 @@ unsigned_long_to_str(unsigned long i)
 static char *
 _str_dup(const char *str, size_t len)
 {
-    char *new_str = (char *)malloc(len + 1);
+    char *new_str = (char *)malloc(sizeof(char) * (len + 1));
     new_str[len] = '\0';
 
     memcpy(new_str, str, len);
