@@ -84,8 +84,7 @@ bool
 should_include_dir(char *dir, struct context *context)
 {
     (void)context;
-
-    return !path_contains_subpath(dir, "run2", true);
+    return !path_contains_subpath(dir, "run2", false);
 }
 
 bool

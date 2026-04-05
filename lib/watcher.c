@@ -286,8 +286,7 @@ watcher_start_watching_thr(void *data)
             struct inotify_event *event = (struct inotify_event *)&buffer[i];
             i += EVENT_SIZE + event->len;
 
-            dir_action = event->mask & DIR_EVENT_MASK;
-            if (event->mask & (DIR_EVENT_MASK | IN_IGNORED))
+            if (event->mask & IN_IGNORED)
                 continue;
 
             size_t iter_wd = 0;
@@ -304,6 +303,13 @@ watcher_start_watching_thr(void *data)
             {
                 log_critical("(watcher) IO Event occurred on wd '%d' that is not included in list of active watchers\n",
                              event->wd);
+                continue;
+            }
+
+            if (event->mask & DIR_EVENT_MASK)
+            {
+                scoped char *path = str_printf("%s/%s", event_dir, event->name);
+                dir_action = watcher->should_include_dir(path, watcher->context);
                 continue;
             }
 

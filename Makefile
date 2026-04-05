@@ -20,7 +20,7 @@ build_debug_address: setup
 	$(CC) $(FLAGS) $(SOURCES) -o ./build-debug/rld-debug-a
 
 run_debug_address: build_debug_address
-	./build-debug/rld-debug-a --help
+	./build-debug/rld-debug-a
 
 build_debug_thread: FLAGS += -fsanitize=undefined,thread -g -D __DEBUG__
 build_debug_thread: setup
