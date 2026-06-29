@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include <sys/wait.h>
 
@@ -34,7 +35,7 @@ static void *execute(void *data);
 
 static int process_start(char **command, char *work_dir, struct command_env *env);
 static int process_wait(pid_t pid);
-static int process_kill(int pid);
+static int process_kill_pid_pg_with_timeout(int pid);
 
 struct executor *
 executor_create()
@@ -99,7 +100,7 @@ executor_stop_commands_and_wait(struct executor *executor, bool force_quit)
     vec_for_each2(struct executor_command, command, executor->commands)
     {
         if (command->pid && (!command->desc->no_interrupt || force_quit))
-            process_kill(command->pid);
+            process_kill_pid_pg_with_timeout(command->pid);
     }
 
     pthread_mutex_unlock(executor->lock);
@@ -257,24 +258,29 @@ process_wait(pid_t pid)
     return status;
 }
 
-static int
-process_kill(int pid)
+int
+process_kill_pid_pg_with_timeout(pid_t pgid)
 {
-    if (pid <= 0)
-        return -1;
+    if (killpg(pgid, SIGTERM) != 0)
+        return errno == ESRCH ? 0 : -1;
 
-    int attempt = 0;
-    while (attempt < 700 && kill(pid, 0) == 0)
+    for (int ms = 0; ms < 5000; ms += 5)
     {
-        if (attempt % 100 == 0)
-            if (!killpg(pid, attempt >= 500 ? SIGKILL : SIGTERM))
-                break;
+        sleep_ms(5);
+        if (killpg(pgid, 0) != 0)
+            return errno == ESRCH ? 0 : -1;
+    }
 
-        if (attempt)
-            sleep_ms(5);
+    if (killpg(pgid, SIGKILL) != 0)
+        return errno == ESRCH ? 0 : -1;
 
-        attempt++;
-    };
+    for (int ms = 0; ms < 3000; ms += 5)
+    {
+        sleep_ms(5);
+        if (killpg(pgid, 0) != 0)
+            return errno == ESRCH ? 0 : -1;
+    }
 
-    return attempt;
+    log_error("Unable to ensure process group '%d' exit in the timeout period", pgid);
+    return 1;
 }
